@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f0eee9;font-family:"Noto Sans SC",system-ui,sans-serif}
+a{color:#2a6fdb;text-decoration:none}a:hover{color:#1d5ac0}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}
+.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}
+.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}
+.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}
+.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">MarkHub 公开导航页 — 3 个「清爽明快」方向(蓝色强调 · 舒适密度 · 卡片墙+文件夹树)</span></div>
+<div class="dv-opts">
+
+<!-- ============ 1a 晴空 ============ -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>晴空 — 通透白底 · 柔和投影卡片 · 圆角友好</div>
+<div class="dv-card" style="width:1060px">
+<div style="background:#f7f9fc;min-height:640px">
+  <!-- header -->
+  <div style="display:flex;align-items:center;gap:20px;padding:14px 28px;background:rgba(255,255,255,.9);border-bottom:1px solid #e8edf5">
+    <div style="display:flex;align-items:center;gap:9px">
+      <div style="width:28px;height:28px;border-radius:8px;background:oklch(0.55 0.18 260);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px">M</div>
+      <span style="font-weight:700;font-size:16px;color:#1b2432">MarkHub</span>
+    </div>
+    <div style="flex:1;max-width:420px;display:flex;align-items:center;gap:8px;background:#eef2f8;border-radius:10px;padding:8px 14px;color:#8b95a7;font-size:13px">
+      <span style="font-size:14px">⌕</span> 搜索书签、标签、域名… <span style="margin-left:auto;font:500 10px 'IBM Plex Mono',monospace;background:#fff;border:1px solid #dde4ee;border-radius:4px;padding:1px 5px;color:#a3adc0">⌘K</span>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+      <span style="font-size:12px;color:#7a8499;border:1px solid #e0e6f0;border-radius:8px;padding:5px 9px;background:#fff">EN / 中</span>
+      <span style="font-size:13px;color:#7a8499;border:1px solid #e0e6f0;border-radius:8px;padding:5px 9px;background:#fff">☾</span>
+      <span style="font-size:13px;color:#fff;background:oklch(0.55 0.18 260);border-radius:8px;padding:6px 16px;font-weight:500">登录</span>
+    </div>
+  </div>
+  <div style="display:flex">
+    <!-- tree -->
+    <div style="width:216px;padding:20px 12px;border-right:1px solid #e8edf5;background:rgba(255,255,255,.6)">
+      <div style="font-size:11px;color:#9aa4b8;font-weight:500;letter-spacing:.08em;padding:0 12px 10px">文件夹</div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:9px;background:oklch(0.95 0.02 260);color:oklch(0.45 0.16 260);font-weight:500;font-size:13.5px"><span>▾</span> 开发工具 <span style="margin-left:auto;font-size:11px;color:#9fb3d9">24</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px 8px 32px;border-radius:9px;color:#4a5468;font-size:13px">前端 <span style="margin-left:auto;font-size:11px;color:#b3bccb">9</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px 8px 32px;border-radius:9px;color:#4a5468;font-size:13px">DevOps <span style="margin-left:auto;font-size:11px;color:#b3bccb">6</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:9px;color:#4a5468;font-size:13.5px"><span style="color:#9aa4b8">▸</span> 设计资源 <span style="margin-left:auto;font-size:11px;color:#b3bccb">18</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:9px;color:#4a5468;font-size:13.5px"><span style="color:#9aa4b8">▸</span> AI &amp; 论文 <span style="margin-left:auto;font-size:11px;color:#b3bccb">12</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:9px;color:#4a5468;font-size:13.5px"><span style="color:#9aa4b8">▸</span> 阅读清单 <span style="margin-left:auto;font-size:11px;color:#b3bccb">31</span></div>
+      </div>
+      <div style="margin:18px 12px 0;padding-top:14px;border-top:1px solid #e8edf5;font-size:11px;color:#9aa4b8;font-weight:500;letter-spacing:.08em">标签</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px 0">
+        <span style="font-size:11.5px;color:oklch(0.45 0.14 260);background:oklch(0.96 0.015 260);border-radius:6px;padding:3px 8px">#opensource</span>
+        <span style="font-size:11.5px;color:oklch(0.45 0.14 260);background:oklch(0.96 0.015 260);border-radius:6px;padding:3px 8px">#docs</span>
+        <span style="font-size:11.5px;color:oklch(0.45 0.14 260);background:oklch(0.96 0.015 260);border-radius:6px;padding:3px 8px">#daily</span>
+      </div>
+    </div>
+    <!-- card wall -->
+    <div style="flex:1;padding:24px 28px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">
+        <span style="font-size:16px;font-weight:700;color:#1b2432">开发工具</span>
+        <span style="font-size:12px;color:#9aa4b8">24 个书签</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:26px">
+        <div style="background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(27,36,50,.06),0 4px 14px rgba(27,36,50,.04);display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:9px;background:#24292f;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">G</div>
+            <div><div style="font-weight:600;font-size:13.5px;color:#1b2432">GitHub</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#9aa4b8">github.com</div></div>
+          </div>
+          <div style="font-size:12px;color:#6b7689;line-height:1.5">全球最大的代码托管与协作平台</div>
+          <div style="display:flex;gap:6px"><span style="font-size:10.5px;color:oklch(0.45 0.14 260);background:oklch(0.96 0.015 260);border-radius:5px;padding:2px 7px">#opensource</span><span style="font-size:10.5px;color:oklch(0.45 0.14 260);background:oklch(0.96 0.015 260);border-radius:5px;padding:2px 7px">#daily</span></div>
+        </div>
+        <div style="background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(27,36,50,.06),0 4px 14px rgba(27,36,50,.04);display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:9px;background:#0b5fff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">M</div>
+            <div><div style="font-weight:600;font-size:13.5px;color:#1b2432">MDN Web Docs</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#9aa4b8">developer.mozilla.org</div></div>
+          </div>
+          <div style="font-size:12px;color:#6b7689;line-height:1.5">Web 标准与 API 权威文档</div>
+          <div style="display:flex;gap:6px"><span style="font-size:10.5px;color:oklch(0.45 0.14 260);background:oklch(0.96 0.015 260);border-radius:5px;padding:2px 7px">#docs</span></div>
+        </div>
+        <div style="background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(27,36,50,.06),0 4px 14px rgba(27,36,50,.04);display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:9px;background:#f26207;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">S</div>
+            <div><div style="font-weight:600;font-size:13.5px;color:#1b2432">Stack Overflow</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#9aa4b8">stackoverflow.com</div></div>
+          </div>
+          <div style="font-size:12px;color:#6b7689;line-height:1.5">程序员问答社区</div>
+          <div style="display:flex;gap:6px"><span style="font-size:10.5px;color:oklch(0.45 0.14 260);background:oklch(0.96 0.015 260);border-radius:5px;padding:2px 7px">#qa</span></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">
+        <span style="font-size:16px;font-weight:700;color:#1b2432">设计资源</span>
+        <span style="font-size:12px;color:#9aa4b8">18 个书签</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        <div style="background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(27,36,50,.06),0 4px 14px rgba(27,36,50,.04);display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:9px;background:#a259ff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">F</div>
+            <div><div style="font-weight:600;font-size:13.5px;color:#1b2432">Figma</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#9aa4b8">figma.com</div></div>
+          </div>
+          <div style="font-size:12px;color:#6b7689;line-height:1.5">协作界面设计工具</div>
+        </div>
+        <div style="background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(27,36,50,.06),0 4px 14px rgba(27,36,50,.04);display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:9px;background:#ea4c89;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">D</div>
+            <div><div style="font-weight:600;font-size:13.5px;color:#1b2432">Dribbble</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#9aa4b8">dribbble.com</div></div>
+          </div>
+          <div style="font-size:12px;color:#6b7689;line-height:1.5">设计灵感与作品集社区</div>
+        </div>
+        <div style="background:#fff;border-radius:14px;padding:16px;box-shadow:0 1px 3px rgba(27,36,50,.06),0 4px 14px rgba(27,36,50,.04);display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:9px;background:#0acf83;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">C</div>
+            <div><div style="font-weight:600;font-size:13.5px;color:#1b2432">Coolors</div><div style="font:400 11px 'IBM Plex Mono',monospace;color:#9aa4b8">coolors.co</div></div>
+          </div>
+          <div style="font-size:12px;color:#6b7689;line-height:1.5">配色方案生成器</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ============ 1b 纸感 ============ -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>纸感 — 暖白底 · 细描边无投影 · 编辑部气质</div>
+<div class="dv-card" style="width:1060px">
+<div style="background:#faf9f6;min-height:640px">
+  <div style="display:flex;align-items:center;gap:20px;padding:16px 30px;border-bottom:1px solid #e7e4dc">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:26px;height:26px;border-radius:6px;border:1.5px solid #23282f;display:flex;align-items:center;justify-content:center;color:#23282f;font-weight:700;font-size:14px">M</div>
+      <span style="font-weight:700;font-size:16px;color:#23282f;letter-spacing:-.01em">MarkHub</span>
+      <span style="font:400 11px 'IBM Plex Mono',monospace;color:#a49f92;margin-left:2px">/ 公开导航</span>
+    </div>
+    <div style="flex:1;max-width:400px;display:flex;align-items:center;gap:8px;border:1px solid #e0dcd2;border-radius:8px;padding:8px 13px;color:#a49f92;font-size:13px;background:#fff">⌕ 搜索…</div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:16px;font-size:13px;color:#6d675b">
+      <span>中 / EN</span><span>☾</span>
+      <span style="color:#23282f;border:1px solid #23282f;border-radius:8px;padding:5px 16px;font-weight:500">登录</span>
+    </div>
+  </div>
+  <div style="display:flex">
+    <div style="width:212px;padding:22px 14px;border-right:1px solid #e7e4dc">
+      <div style="display:flex;flex-direction:column;gap:1px">
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-left:2px solid oklch(0.55 0.18 260);background:#fff;color:#23282f;font-weight:600;font-size:13.5px">开发工具<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#b5b0a3">24</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px 7px 26px;border-left:2px solid transparent;color:#6d675b;font-size:13px">前端<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#c5c0b3">9</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px 7px 26px;border-left:2px solid transparent;color:#6d675b;font-size:13px">DevOps<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#c5c0b3">6</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-left:2px solid transparent;color:#6d675b;font-size:13.5px">设计资源<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#c5c0b3">18</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-left:2px solid transparent;color:#6d675b;font-size:13.5px">AI &amp; 论文<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#c5c0b3">12</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-left:2px solid transparent;color:#6d675b;font-size:13.5px">阅读清单<span style="margin-left:auto;font:400 11px 'IBM Plex Mono',monospace;color:#c5c0b3">31</span></div>
+      </div>
+    </div>
+    <div style="flex:1;padding:26px 30px">
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+        <span style="font-size:19px;font-weight:700;color:#23282f;letter-spacing:-.01em">开发工具</span>
+        <span style="font:400 11px 'IBM Plex Mono',monospace;color:#b5b0a3">24 ITEMS</span>
+      </div>
+      <div style="height:1px;background:#e7e4dc;margin:12px 0 18px"></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:28px">
+        <div style="background:#fff;border:1px solid #e7e4dc;border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div style="width:30px;height:30px;border-radius:6px;background:#23282f;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">G</div>
+            <div style="font-weight:600;font-size:13.5px;color:#23282f">GitHub</div>
+          </div>
+          <div style="font-size:12px;color:#6d675b;line-height:1.55">全球最大的代码托管与协作平台</div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#b5b0a3">github.com · #opensource</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e7e4dc;border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div style="width:30px;height:30px;border-radius:6px;background:#0b5fff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">M</div>
+            <div style="font-weight:600;font-size:13.5px;color:#23282f">MDN Web Docs</div>
+          </div>
+          <div style="font-size:12px;color:#6d675b;line-height:1.55">Web 标准与 API 权威文档</div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#b5b0a3">developer.mozilla.org · #docs</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e7e4dc;border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div style="width:30px;height:30px;border-radius:6px;background:#f26207;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">S</div>
+            <div style="font-weight:600;font-size:13.5px;color:#23282f">Stack Overflow</div>
+          </div>
+          <div style="font-size:12px;color:#6d675b;line-height:1.55">程序员问答社区</div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#b5b0a3">stackoverflow.com · #qa</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+        <span style="font-size:19px;font-weight:700;color:#23282f;letter-spacing:-.01em">设计资源</span>
+        <span style="font:400 11px 'IBM Plex Mono',monospace;color:#b5b0a3">18 ITEMS</span>
+      </div>
+      <div style="height:1px;background:#e7e4dc;margin:12px 0 18px"></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div style="background:#fff;border:1px solid #e7e4dc;border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div style="width:30px;height:30px;border-radius:6px;background:#a259ff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">F</div>
+            <div style="font-weight:600;font-size:13.5px;color:#23282f">Figma</div>
+          </div>
+          <div style="font-size:12px;color:#6d675b;line-height:1.55">协作界面设计工具</div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#b5b0a3">figma.com</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e7e4dc;border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div style="width:30px;height:30px;border-radius:6px;background:#ea4c89;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">D</div>
+            <div style="font-weight:600;font-size:13.5px;color:#23282f">Dribbble</div>
+          </div>
+          <div style="font-size:12px;color:#6d675b;line-height:1.55">设计灵感与作品集社区</div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#b5b0a3">dribbble.com</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e7e4dc;border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div style="width:30px;height:30px;border-radius:6px;background:#0acf83;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">C</div>
+            <div style="font-weight:600;font-size:13.5px;color:#23282f">Coolors</div>
+          </div>
+          <div style="font-size:12px;color:#6d675b;line-height:1.55">配色方案生成器</div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#b5b0a3">coolors.co</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ============ 1c 冷调工具 ============ -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>冷调工具 — 冷灰蓝底 · 紧致行卡混排 · 开发者工具气质</div>
+<div class="dv-card" style="width:1060px">
+<div style="background:#f2f4f8;min-height:640px">
+  <div style="display:flex;align-items:center;gap:18px;padding:12px 24px;background:#fff;border-bottom:1px solid #e2e7ef">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,oklch(0.55 0.18 260),oklch(0.65 0.16 230));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px">M</div>
+      <span style="font:600 14px 'IBM Plex Mono',monospace;color:#1c2333">markhub</span>
+    </div>
+    <div style="display:flex;gap:2px;font-size:12.5px;color:#69748c">
+      <span style="padding:6px 12px;border-radius:7px;background:#eef1f7;color:#1c2333;font-weight:500">导航</span>
+      <span style="padding:6px 12px;border-radius:7px">标签</span>
+      <span style="padding:6px 12px;border-radius:7px">关于</span>
+    </div>
+    <div style="margin-left:auto;flex:1;max-width:360px;display:flex;align-items:center;gap:8px;border:1px solid #dde3ee;border-radius:8px;padding:7px 12px;color:#98a2b8;font-size:12.5px;background:#f7f9fc">
+      <span>⌕</span><span style="font:400 12px 'IBM Plex Mono',monospace">search / filter…</span><span style="margin-left:auto;font:500 10px 'IBM Plex Mono',monospace;border:1px solid #dde3ee;border-radius:4px;padding:0 5px;background:#fff">/</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#69748c">
+      <span style="border:1px solid #dde3ee;border-radius:7px;padding:5px 8px;background:#fff">中/EN</span>
+      <span style="border:1px solid #dde3ee;border-radius:7px;padding:5px 8px;background:#fff">☾</span>
+      <span style="color:#fff;background:#1c2333;border-radius:7px;padding:6px 14px;font-weight:500;font-size:12.5px">登录</span>
+    </div>
+  </div>
+  <div style="display:flex">
+    <div style="width:208px;padding:16px 10px;background:#fff;border-right:1px solid #e2e7ef;min-height:590px">
+      <div style="font:500 10px 'IBM Plex Mono',monospace;color:#98a2b8;letter-spacing:.1em;padding:0 12px 8px">FOLDERS</div>
+      <div style="display:flex;flex-direction:column;gap:1px;font-size:13px">
+        <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:7px;background:oklch(0.55 0.18 260);color:#fff;font-weight:500">▾ 开发工具<span style="margin-left:auto;font:400 10.5px 'IBM Plex Mono',monospace;opacity:.7">24</span></div>
+        <div style="display:flex;align-items:center;gap:7px;padding:6px 12px 6px 30px;border-radius:7px;color:#4c576e">前端<span style="margin-left:auto;font:400 10.5px 'IBM Plex Mono',monospace;color:#aab3c6">9</span></div>
+        <div style="display:flex;align-items:center;gap:7px;padding:6px 12px 6px 30px;border-radius:7px;color:#4c576e">DevOps<span style="margin-left:auto;font:400 10.5px 'IBM Plex Mono',monospace;color:#aab3c6">6</span></div>
+        <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:7px;color:#4c576e">▸ 设计资源<span style="margin-left:auto;font:400 10.5px 'IBM Plex Mono',monospace;color:#aab3c6">18</span></div>
+        <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:7px;color:#4c576e">▸ AI &amp; 论文<span style="margin-left:auto;font:400 10.5px 'IBM Plex Mono',monospace;color:#aab3c6">12</span></div>
+        <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:7px;color:#4c576e">▸ 阅读清单<span style="margin-left:auto;font:400 10.5px 'IBM Plex Mono',monospace;color:#aab3c6">31</span></div>
+      </div>
+    </div>
+    <div style="flex:1;padding:20px 24px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:15px;font-weight:700;color:#1c2333">开发工具</span>
+        <span style="font:400 11px 'IBM Plex Mono',monospace;color:#98a2b8">24 bookmarks · updated 2h ago</span>
+        <div style="margin-left:auto;display:flex;gap:4px">
+          <span style="font-size:11px;border:1px solid #dde3ee;background:#fff;border-radius:6px;padding:3px 9px;color:#1c2333;font-weight:500">卡片</span>
+          <span style="font-size:11px;border:1px solid transparent;border-radius:6px;padding:3px 9px;color:#98a2b8">列表</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px">
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#24292f;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">G</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">GitHub</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">github.com</div>
+          <div style="display:flex;gap:4px"><span style="font:400 10px 'IBM Plex Mono',monospace;color:oklch(0.5 0.15 260);background:oklch(0.95 0.02 260);border-radius:4px;padding:1px 6px">opensource</span></div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#0b5fff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">M</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">MDN Web Docs</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">developer.mozilla.org</div>
+          <div style="display:flex;gap:4px"><span style="font:400 10px 'IBM Plex Mono',monospace;color:oklch(0.5 0.15 260);background:oklch(0.95 0.02 260);border-radius:4px;padding:1px 6px">docs</span></div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#f26207;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">S</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">Stack Overflow</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">stackoverflow.com</div>
+          <div style="display:flex;gap:4px"><span style="font:400 10px 'IBM Plex Mono',monospace;color:oklch(0.5 0.15 260);background:oklch(0.95 0.02 260);border-radius:4px;padding:1px 6px">qa</span></div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">V</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">Vercel</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">vercel.com</div>
+          <div style="display:flex;gap:4px"><span style="font:400 10px 'IBM Plex Mono',monospace;color:oklch(0.5 0.15 260);background:oklch(0.95 0.02 260);border-radius:4px;padding:1px 6px">deploy</span></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:15px;font-weight:700;color:#1c2333">设计资源</span>
+        <span style="font:400 11px 'IBM Plex Mono',monospace;color:#98a2b8">18 bookmarks</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#a259ff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">F</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">Figma</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">figma.com</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#ea4c89;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">D</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">Dribbble</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">dribbble.com</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#0acf83;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">C</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">Coolors</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">coolors.co</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e7ef;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:26px;height:26px;border-radius:6px;background:#ff6154;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11.5px">P</div>
+            <div style="font-weight:600;font-size:12.5px;color:#1c2333">Product Hunt</div>
+          </div>
+          <div style="font:400 10.5px 'IBM Plex Mono',monospace;color:#98a2b8">producthunt.com</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">下一步:告诉我「按 <a class="dv-oid" href="#1a">1a</a> 做全站原型」· 或「<a class="dv-oid" href="#1b">1b</a> 的描边 + <a class="dv-oid" href="#1a">1a</a> 的配色」· 或「再来几个方向」</p>
+</section>
+
+</x-dc>
+</body>
+</html>
