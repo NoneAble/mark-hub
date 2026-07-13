@@ -1,0 +1,190 @@
+-- RQG-DATA-CONSTRAINTS-002: repair orphans + enforce full FK graph on upgrades
+-- from create_all() / older schemas. Safe to run once; uses table rebuilds
+-- because SQLite cannot ADD CONSTRAINT for foreign keys.
+
+PRAGMA foreign_keys = OFF;
+
+-- ---- orphan repair (validate existing rows) ----
+UPDATE folders
+SET parent_id = NULL
+WHERE parent_id IS NOT NULL
+  AND parent_id NOT IN (SELECT id FROM folders);
+
+DELETE FROM bookmarks
+WHERE folder_id NOT IN (SELECT id FROM folders)
+   OR user_id NOT IN (SELECT id FROM users);
+
+DELETE FROM bookmark_tags
+WHERE bookmark_id NOT IN (SELECT id FROM bookmarks)
+   OR tag_id NOT IN (SELECT id FROM tags);
+
+DELETE FROM tags WHERE user_id NOT IN (SELECT id FROM users);
+
+DELETE FROM board_groups
+WHERE board_id NOT IN (SELECT id FROM boards);
+
+UPDATE annotations SET group_id = NULL
+WHERE group_id IS NOT NULL
+  AND group_id NOT IN (SELECT id FROM board_groups);
+
+UPDATE annotations SET source_folder_id = NULL
+WHERE source_folder_id IS NOT NULL
+  AND source_folder_id NOT IN (SELECT id FROM folders);
+
+DELETE FROM annotations
+WHERE board_id NOT IN (SELECT id FROM boards)
+   OR bookmark_id NOT IN (SELECT id FROM bookmarks);
+
+DELETE FROM boards WHERE user_id NOT IN (SELECT id FROM users);
+DELETE FROM settings WHERE user_id NOT IN (SELECT id FROM users);
+DELETE FROM op_logs WHERE user_id NOT IN (SELECT id FROM users);
+DELETE FROM reorder_clocks WHERE user_id NOT IN (SELECT id FROM users);
+DELETE FROM clean_issues
+WHERE job_id NOT IN (SELECT id FROM clean_jobs)
+   OR user_id NOT IN (SELECT id FROM users);
+DELETE FROM clean_jobs WHERE user_id NOT IN (SELECT id FROM users);
+DELETE FROM share_links WHERE user_id NOT IN (SELECT id FROM users);
+DELETE FROM ai_tasks WHERE user_id NOT IN (SELECT id FROM users);
+DELETE FROM folders WHERE user_id NOT IN (SELECT id FROM users);
+
+-- ---- rebuild folders with parent_id FK (rename-old → create final name) ----
+ALTER TABLE folders RENAME TO folders__old;
+CREATE TABLE folders (
+  id VARCHAR(36) NOT NULL,
+  user_id VARCHAR(36) NOT NULL,
+  parent_id VARCHAR(36),
+  name VARCHAR(255) NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  visibility VARCHAR(16) NOT NULL DEFAULT 'private',
+  is_system BOOLEAN NOT NULL DEFAULT 0,
+  deleted_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  PRIMARY KEY (id),
+  FOREIGN KEY(user_id) REFERENCES users (id),
+  FOREIGN KEY(parent_id) REFERENCES folders (id)
+);
+INSERT INTO folders (
+  id, user_id, parent_id, name, sort_order, visibility, is_system,
+  deleted_at, created_at, updated_at
+)
+SELECT
+  id, user_id, parent_id, name, sort_order, visibility, is_system,
+  deleted_at, created_at, updated_at
+FROM folders__old;
+DROP TABLE folders__old;
+CREATE INDEX IF NOT EXISTS ix_folders_user_parent_sort ON folders (user_id, parent_id, sort_order);
+CREATE INDEX IF NOT EXISTS ix_folders_user_id ON folders (user_id);
+CREATE INDEX IF NOT EXISTS ix_folders_parent_id ON folders (parent_id);
+
+-- ---- rebuild bookmarks to re-bind folder FK after folders rebuild ----
+ALTER TABLE bookmarks RENAME TO bookmarks__old;
+CREATE TABLE bookmarks (
+  id VARCHAR(36) NOT NULL,
+  user_id VARCHAR(36) NOT NULL,
+  folder_id VARCHAR(36) NOT NULL,
+  title VARCHAR(500) NOT NULL,
+  url TEXT NOT NULL,
+  url_normalized TEXT NOT NULL DEFAULT '',
+  description TEXT,
+  visibility VARCHAR(16) NOT NULL DEFAULT 'private',
+  is_favorite BOOLEAN NOT NULL DEFAULT 0,
+  is_archived BOOLEAN NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  ai_summary TEXT,
+  ai_category VARCHAR(255),
+  link_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  deleted_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  PRIMARY KEY (id),
+  FOREIGN KEY(user_id) REFERENCES users (id),
+  FOREIGN KEY(folder_id) REFERENCES folders (id)
+);
+INSERT INTO bookmarks (
+  id, user_id, folder_id, title, url, url_normalized, description, visibility,
+  is_favorite, is_archived, sort_order, ai_summary, ai_category, link_status,
+  deleted_at, created_at, updated_at
+)
+SELECT
+  id, user_id, folder_id, title, url, url_normalized, description, visibility,
+  is_favorite, is_archived, sort_order, ai_summary, ai_category, link_status,
+  deleted_at, created_at, updated_at
+FROM bookmarks__old;
+DROP TABLE bookmarks__old;
+CREATE INDEX IF NOT EXISTS ix_bookmarks_user_url_norm ON bookmarks (user_id, url_normalized);
+CREATE INDEX IF NOT EXISTS ix_bookmarks_user_folder_sort ON bookmarks (user_id, folder_id, sort_order);
+CREATE INDEX IF NOT EXISTS ix_bookmarks_user_id ON bookmarks (user_id);
+CREATE INDEX IF NOT EXISTS ix_bookmarks_folder_id ON bookmarks (folder_id);
+
+-- ---- annotations: add optional group/source folder FKs ----
+ALTER TABLE annotations RENAME TO annotations__old;
+CREATE TABLE annotations (
+  id VARCHAR(36) NOT NULL,
+  board_id VARCHAR(36) NOT NULL,
+  bookmark_id VARCHAR(36) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  risk VARCHAR(16) NOT NULL DEFAULT '',
+  price_tag VARCHAR(16) NOT NULL DEFAULT '',
+  category VARCHAR(255),
+  group_id VARCHAR(36),
+  secondary_group_ids TEXT NOT NULL DEFAULT '[]',
+  note TEXT,
+  source_ref VARCHAR(255),
+  source_folder_id VARCHAR(36),
+  source_folder_path TEXT,
+  present BOOLEAN NOT NULL DEFAULT 1,
+  first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  missing_since DATETIME,
+  annotation_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  fields TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY (id),
+  FOREIGN KEY(board_id) REFERENCES boards (id),
+  FOREIGN KEY(bookmark_id) REFERENCES bookmarks (id),
+  FOREIGN KEY(group_id) REFERENCES board_groups (id),
+  FOREIGN KEY(source_folder_id) REFERENCES folders (id)
+);
+INSERT INTO annotations (
+  id, board_id, bookmark_id, status, risk, price_tag, category, group_id,
+  secondary_group_ids, note, source_ref, source_folder_id, source_folder_path,
+  present, first_seen_at, last_seen_at, missing_since, annotation_updated_at, fields
+)
+SELECT
+  id, board_id, bookmark_id, status, risk, price_tag, category, group_id,
+  secondary_group_ids, note, source_ref, source_folder_id, source_folder_path,
+  present, first_seen_at, last_seen_at, missing_since, annotation_updated_at, fields
+FROM annotations__old;
+DROP TABLE annotations__old;
+CREATE INDEX IF NOT EXISTS ix_annotations_board_bookmark ON annotations (board_id, bookmark_id);
+CREATE INDEX IF NOT EXISTS ix_annotations_board_id ON annotations (board_id);
+CREATE INDEX IF NOT EXISTS ix_annotations_bookmark_id ON annotations (bookmark_id);
+
+-- ---- clean_issues: enforce user_id FK ----
+ALTER TABLE clean_issues RENAME TO clean_issues__old;
+CREATE TABLE clean_issues (
+  id VARCHAR(36) NOT NULL,
+  job_id VARCHAR(36) NOT NULL,
+  user_id VARCHAR(36) NOT NULL,
+  kind VARCHAR(32) NOT NULL,
+  entity_type VARCHAR(32) NOT NULL,
+  entity_id VARCHAR(36) NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  resolved BOOLEAN NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  PRIMARY KEY (id),
+  FOREIGN KEY(job_id) REFERENCES clean_jobs (id),
+  FOREIGN KEY(user_id) REFERENCES users (id)
+);
+INSERT INTO clean_issues (
+  id, job_id, user_id, kind, entity_type, entity_id, detail, resolved, created_at
+)
+SELECT
+  id, job_id, user_id, kind, entity_type, entity_id, detail,
+  COALESCE(resolved, 0), created_at
+FROM clean_issues__old;
+DROP TABLE clean_issues__old;
+CREATE INDEX IF NOT EXISTS ix_clean_issues_job_id ON clean_issues (job_id);
+CREATE INDEX IF NOT EXISTS ix_clean_issues_user_id ON clean_issues (user_id);
+
+PRAGMA foreign_keys = ON;

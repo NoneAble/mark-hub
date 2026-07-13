@@ -1,0 +1,89 @@
+# MarkHub Docker Compose
+#
+# Quick start (SQLite volume):
+#   1. ./scripts/generate-docker-env.sh   # or: cp .env.example .env and edit
+#   2. docker compose up --build
+#   → http://localhost:8080
+#
+# Postgres full stack (internal DB network only):
+#   1. same .env (must include POSTGRES_PASSWORD)
+#   2. docker compose --profile postgres-app up --build
+#   → http://localhost:8081
+#
+# Required env for every path: JWT_SECRET, MARKHUB_MASTER_KEY,
+# DEFAULT_ADMIN_PASSWORD, POSTGRES_PASSWORD (no insecure defaults).
+
+services:
+  markhub:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8000"
+    volumes:
+      - markhub-data:/app/server/data
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — copy .env.example to .env and generate secrets}
+      MARKHUB_MASTER_KEY: ${MARKHUB_MASTER_KEY:?MARKHUB_MASTER_KEY is required — generate >=24 chars}
+      DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///./data/markhub.db}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required — do not use admin123}
+      FORCE_ADMIN_PASSWORD_CHANGE: ${FORCE_ADMIN_PASSWORD_CHANGE:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Internal Postgres for the postgres-app profile (and optional standalone postgres profile).
+  # Port is NOT published to the host by default (RQG-DOCKER-POSTGRES-001).
+  postgres:
+    profiles: ["postgres", "postgres-app"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-markhub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set in .env (needed for all Compose paths)}
+      POSTGRES_DB: ${POSTGRES_DB:-markhub}
+    volumes:
+      - markhub-pg:/var/lib/postgresql/data
+    # No host port mapping — app reaches DB via the compose network only.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Full stack with Postgres: docker compose --profile postgres-app up --build
+  # Depends on `postgres`, which shares the postgres-app profile so both start together.
+  markhub-pg:
+    profiles: ["postgres-app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8081:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — copy .env.example to .env and generate secrets}
+      MARKHUB_MASTER_KEY: ${MARKHUB_MASTER_KEY:?MARKHUB_MASTER_KEY is required — generate >=24 chars}
+      # Password is interpolated from the same required POSTGRES_PASSWORD used by postgres.
+      # Prefer URL-safe passwords (alphanumeric) so DATABASE_URL does not need encoding.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-markhub}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-markhub}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required — do not use admin123}
+      FORCE_ADMIN_PASSWORD_CHANGE: ${FORCE_ADMIN_PASSWORD_CHANGE:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  markhub-data:
+  markhub-pg:

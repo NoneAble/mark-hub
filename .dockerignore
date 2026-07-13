@@ -1,0 +1,68 @@
+# Build context hygiene — never send local secrets, caches, or virtualenvs
+# into `docker build` (RQG-DOCKER-001).
+
+.git
+.gitignore
+.gitattributes
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.local
+**/.dev.vars
+
+# Node / package manager caches
+node_modules
+**/node_modules
+.pnpm-store
+**/.pnpm-store
+.npm
+.turbo
+**/*.tsbuildinfo
+
+# Built artefacts (web is rebuilt inside the image)
+**/dist
+web-dist
+apps/web/dist
+apps/worker/dist
+packages/*/dist
+apps/web/test-results
+apps/web/playwright-report
+.pw-browsers
+
+# Python local state
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.venv
+**/venv
+server/.venv
+server/.cache
+server/.cargo
+server/.rustup
+server/data
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# Tests and local tooling (not needed in runtime image)
+server/tests
+**/tests
+**/*_test.py
+**/test_*.py
+.pytest.ini
+ui-design
+plan.md
+docs
+scripts
+**/.DS_Store
+**/*.log
+coverage
+.wrangler
+**/.wrangler
+*.md
+!README.md

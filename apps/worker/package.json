@@ -1,0 +1,27 @@
+{
+  "name": "@markhub/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "echo 'worker build via wrangler'",
+    "test": "pnpm run test:harness && pnpm run test:runtime && pnpm run test:remote-backups && pnpm run test:assets",
+    "test:harness": "node ./scripts/port-release-test.mjs",
+    "test:runtime": "bash ./scripts/run-test.sh",
+    "test:kd31": "bash ./scripts/run-test.sh --focus=kd31",
+    "test:remote-backups": "node ./scripts/test-remote-backups-r3.mjs",
+    "test:assets": "node ./scripts/cf-assets-test.mjs",
+    "test:contract": "node ./scripts/contract-test.mjs",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@markhub/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "typescript": "^5.7.2",
+    "wrangler": "^3.99.0"
+  }
+}

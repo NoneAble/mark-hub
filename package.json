@@ -1,0 +1,25 @@
+{
+  "name": "markhub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MarkHub — self-hosted bookmark hub (Web SPA + API)",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "test:core": "pnpm --filter @markhub/core test",
+    "test:server": "cd server && python -m pytest -q",
+    "test:worker": "pnpm --filter @markhub/worker test",
+    "test:docker": "bash scripts/test-docker-deploy.sh",
+    "test:e2e": "bash scripts/e2e-smoke.sh",
+    "test:parity": "cd server && python -m pytest -q tests/test_parity_live.py tests/test_round2_fixes.py -k parity",
+    "lint": "pnpm -r --if-present run lint",
+    "lint:python": "cd server && ruff check app tests",
+    "openapi:export": "cd server && python ../scripts/export_openapi.py",
+    "dev:web": "pnpm --filter @markhub/web dev",
+    "dev:server": "cd server && python -m uvicorn app.main:app --reload --port 8000"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

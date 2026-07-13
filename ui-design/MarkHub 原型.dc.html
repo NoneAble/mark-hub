@@ -403,6 +403,7 @@ input,select,textarea,button{font-family:inherit}
         </sc-for>
       </div>
     </div>
+    </sc-if>
   </div>
   </sc-if>
 
@@ -592,7 +593,7 @@ input,select,textarea,button{font-family:inherit}
     </sc-if>
     <sc-if value="{{ isBkS3 }}" hint-placeholder-val="{{ false }}">
       <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-      <div style="background:var(--panel);border-radius:13px;box-shadow:var(--shadow);padding:20px;width:520px;box-sizing:border-box">
+      <div style="background:var(--panel);border-radius:13px;box-shadow:var(--shadow);padding:20px;width:520px;max-width:100%;box-sizing:border-box">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
           <div style="font-weight:600;font-size:13.5px">S3 / Cloudflare R2</div>
           <span style="font-size:10.5px;color:var(--text3)">{{ t.s3Sub }}</span>
@@ -783,7 +784,7 @@ input,select,textarea,button{font-family:inherit}
 <!-- ==================== 编辑/新增 Modal ==================== -->
 <sc-if value="{{ editOpen }}" hint-placeholder-val="{{ false }}">
 <div onClick="{{ closeEdit }}" style="position:fixed;inset:0;background:rgba(15,20,30,.45);z-index:50;display:flex;align-items:center;justify-content:center">
-  <div onClick="{{ stop }}" style="width:440px;background:var(--panel);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:24px;display:flex;flex-direction:column;gap:13px;animation:fadeUp .25s ease">
+  <div onClick="{{ stop }}" style="width:min(440px,calc(100vw - 40px));background:var(--panel);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:24px;display:flex;flex-direction:column;gap:13px;animation:fadeUp .25s ease">
     <div style="font-weight:700;font-size:15px">{{ editTitle }}</div>
     <sc-for list="{{ editFields }}" as="f" hint-placeholder-count="3">
       <div style="display:flex;flex-direction:column;gap:5px">
@@ -820,7 +821,7 @@ input,select,textarea,button{font-family:inherit}
 <div onClick="{{ closeQr }}" style="position:fixed;inset:0;background:rgba(15,20,30,.45);z-index:50;display:flex;align-items:center;justify-content:center">
   <div onClick="{{ stop }}" style="background:var(--panel);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:26px;display:flex;flex-direction:column;align-items:center;gap:14px;animation:fadeUp .25s ease">
     <div style="font-weight:700;font-size:14px">{{ qrTitle }}</div>
-    <img src="{{ qrSrc }}" width="180" height="180" style="border-radius:10px;border:1px solid var(--border);background:#fff;padding:8px;box-sizing:content-box" alt="QR">
+    <div role="img" aria-label="QR" style="width:180px;height:180px;border-radius:10px;border:1px solid var(--border);background-color:#fff;background-image:url('{{ qrSrc }}');background-size:180px 180px;background-repeat:no-repeat;background-position:center;padding:8px;box-sizing:content-box"></div>
     <div style="font:400 11px 'IBM Plex Mono',monospace;color:var(--text3);max-width:240px;text-align:center;word-break:break-all">{{ qrUrl }}</div>
     <button onClick="{{ closeQr }}" style="font-size:13px;color:var(--text2);background:var(--panel2);border:none;border-radius:9px;padding:8px 20px;cursor:pointer">{{ t.close }}</button>
   </div>

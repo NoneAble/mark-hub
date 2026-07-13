@@ -1,0 +1,36 @@
+name = "markhub"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "markhub"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[vars]
+DEFAULT_ADMIN_USERNAME = "admin"
+
+# Secrets (set via wrangler secret put):
+# JWT_SECRET
+# MARKHUB_MASTER_KEY
+# DEFAULT_ADMIN_PASSWORD
+
+# Every 15 minutes: board incremental scans + HH:mm backup window matching (RQG-CF-SCHEDULE-001)
+[triggers]
+crons = ["*/15 * * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true

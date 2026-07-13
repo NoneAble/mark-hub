@@ -1,0 +1,21 @@
+target-version = "py311"
+line-length = 100
+src = ["app", "tests"]
+
+[lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "W",   # pycodestyle warnings
+  "UP",  # pyupgrade
+]
+ignore = [
+  "E501",  # line length — prefer readability in tests/fixtures
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402"]
+
+[format]
+quote-style = "double"

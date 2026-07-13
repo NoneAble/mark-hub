@@ -1087,3 +1087,35 @@ flowchart TD
 ---
 
 *Rev 5 结束。实现以 KD-1–42 与用户 2026-07-12 八项决议为准。*
+
+---
+
+## 附录 D：Workflow 适中模式验收补充（2026-07-13）
+
+本附录是本项目后续 `/workflow-codex --review-mode balanced` 的验收合同。它不扩大产品范围，只明确适中模式中不得降级为 TODO 的核心领域，并将其余次要工作分离出来。
+
+### D.1 适中模式必须通过
+
+1. **Cloudflare 部署与 D1 约束**：Workers + D1 的配置、migration 链、已有数据升级、公开分享过期语义和核心 API 合约必须可重现。不得将损坏已有数据、制造孤儿记录、绕过 date-time 验证或使公开链接意外永久有效的问题降级。
+2. **备份与恢复保真**：JSON/CSV/HTML 的承诺路径必须保留树层级、合法名称、相对顺序、visibility、标签及颜色；`replace_all` 不得因损坏输入、parser error 或中途失败把数据库留在清空/半恢复状态；merge 必须遵守 KD-31。备份 retention 失败必须如实报告。
+3. **Migration 与数据完整性**：SQLite/Postgres/D1 的 fresh 与 legacy/populated upgrade 需要可执行证据。SQLite 重建迁移必须失败原子或可确定恢复；D1 必须在实际外键语义下清理孤儿并通过 `foreign_key_check`；自引用 folder FK 下 GC 必须 children-first 或等价安全。
+4. **安全与数据丢失不变量**：新发现的认证绕过、隐私泄漏、不可恢复数据丢失、引用完整性破坏即使不在首轮 checklist 中，也必须新增 required finding。
+
+### D.2 已知核心回归矩阵
+
+- 在干净实例 A 导出、实例 B 恢复，对 folders/bookmarks/tags 进行数据集对比；覆盖同父同名 folder、`/` 名称、空 folder、非零 sort order、彩色及未关联 tag。
+- 覆盖 JSON 与 CSV 的嵌套层级 round-trip，损坏文件/未知 version/未知 strategy 拒绝，Worker `replace_all` 故障注入不破坏旧数据，以及 merge 多副本的目标夹优先级。
+- 用 populated pre-migration fixture 运行 D1 升级和完整外键检查；对 SQLite 在重建迁移中注入失败并验证可重试；对 Postgres 运行真实 fresh/legacy 链。
+- 实际启动 Worker 并黑盒验证非法、过去、未来和带时区偏移的 `expires_at`。
+- 用确定性本地 fake WebDAV/S3 provider 验证连接、写入、retention 成功/部分失败报告；不要求真实第三方凭据。
+- Docker SQLite/Postgres 路径以实际镜像构建、健康启动、登录与关键写入为证据；交互式 Web 主流程仍需浏览器 E2E，不能仅用 HTTP 探测代替。
+
+### D.3 适中模式可延后 TODO
+
+- 未完成的全量中文 i18n、纯 UI 文案/布局细节、Wrangler 主版本升级。
+- Board post-write scan 的完整 debounce 优化（前提是不破坏 annotation 正确性或数据完整性）。
+- board 公开分享的完整 payload、悬空分享的创建时体验、OpenAPI 描述/枚举精细化（前提是 bookmark/folder resolve 不泄漏已删除或他人数据）。
+- 备份中可重建的 AI enrichment、原始 ID/时间戳和单条汇总审计事件（但树层级、相对顺序、标签和恢复原子性不得延后）。
+- Postgres 同义外键重复的清理（但 fresh/legacy 真实迁移执行证据不得延后）。
+
+Codex 只能在 D.1 全部通过并有 D.2 对应可复现证据时返回 `pass`。`planDeviations` 表示未完成的阻断偏差，不得在 `pass` 时出现；只有 D.3 类问题可进入 `optionalSuggestions`/TODO。
