@@ -2,17 +2,27 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { BUILTIN_ENGINES, buildSearchUrl, type SearchEngine } from "@markhub/core";
 import { useI18n } from "../../i18n";
 import { useAuth } from "../../lib/auth";
+import { PageHeader, SearchField, Chip } from "../../components/ui";
 
 type CustomEngine = { id: string; name: string; template: string };
+
+const ENGINE_COLORS: Record<string, string> = {
+  google: "#4285f4",
+  bing: "#008373",
+  duckduckgo: "#de5833",
+  github: "#24292f",
+  mdn: "#0b5fff",
+};
 
 export function ComparePage() {
   const { t, lang } = useI18n();
   const { api } = useAuth();
-  const [q, setQ] = useState("");
-  const [active, setActive] = useState<string[]>(["google", "bing", "duckduckgo"]);
+  const [q, setQ] = useState("react server components");
+  const [active, setActive] = useState<string[]>(["google", "bing", "duckduckgo", "github"]);
   const [custom, setCustom] = useState<CustomEngine[]>([]);
   const [newName, setNewName] = useState("");
   const [newTemplate, setNewTemplate] = useState("https://example.com/search?q=%s");
+  const [searched, setSearched] = useState("");
 
   useEffect(() => {
     void api.get<Record<string, unknown>>("/settings").then((s) => {
@@ -58,6 +68,17 @@ export function ComparePage() {
     });
   }
 
+  function toggleEngine(id: string) {
+    const next = active.includes(id) ? active.filter((x) => x !== id) : [...active, id];
+    setActive(next);
+    void persist(custom, next);
+  }
+
+  function doSearch() {
+    if (!q.trim()) return;
+    setSearched(q.trim());
+  }
+
   function openAll() {
     if (!q.trim()) return;
     for (const e of engines) {
@@ -90,92 +111,115 @@ export function ComparePage() {
     await persist(next, nextActive);
   }
 
-  async function toggle(id: string, checked: boolean) {
-    const next = checked ? [...active, id] : active.filter((x) => x !== id);
-    setActive(next);
-    await persist(custom, next);
-  }
-
   return (
-    <div className="stack">
-      <h1 className="page-title">{t("compare")}</h1>
-      <div className="card row">
-        <input
-          className="input"
-          style={{ flex: 1 }}
-          placeholder={t("search")}
+    <div>
+      <PageHeader title={t("compare")} sub={t("compareSub")} />
+
+      <div className="row" style={{ gap: 10, marginBottom: 14, maxWidth: 640 }}>
+        <SearchField
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && openAll()}
+          onChange={setQ}
+          placeholder={t("cmpPh")}
+          style={{ flex: 1 }}
         />
-        <button className="btn btn-primary" type="button" onClick={openAll}>
+        <button type="button" className="btn btn-primary" onClick={doSearch}>
+          {t("searchBtn")}
+        </button>
+        <button type="button" className="btn btn-soft" onClick={openAll} disabled={!q.trim()}>
           {t("searchAll")}
         </button>
       </div>
-      <div className="row" style={{ flexWrap: "wrap" }}>
+
+      <div className="row" style={{ gap: 8, marginBottom: 18 }}>
         {allEngines.map((e) => (
-          <label key={e.id} className="row" style={{ gap: 4 }}>
-            <input
-              type="checkbox"
-              checked={active.includes(e.id)}
-              onChange={(ev) => void toggle(e.id, ev.target.checked)}
-            />
-            {lang === "zh" ? e.nameZh : e.name}
-          </label>
+          <Chip key={e.id} active={active.includes(e.id)} onClick={() => toggleEngine(e.id)}>
+            {lang === "zh" && e.nameZh ? e.nameZh : e.name}
+          </Chip>
         ))}
       </div>
 
-      <div className="card stack">
-        <strong>{t("customEngines")}</strong>
-        <form className="row" onSubmit={addCustom}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+          gap: 14,
+          marginBottom: 24,
+        }}
+      >
+        {engines.map((e) => {
+          const query = searched || q;
+          const url = query ? buildSearchUrl(e.template, query) : "";
+          const color = ENGINE_COLORS[e.id] || "var(--accent)";
+          return (
+            <div key={e.id} className="card card-flush">
+              <div className="row" style={{ gap: 9, padding: "11px 14px", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
+                <span style={{ fontWeight: 600, fontSize: 13 }}>
+                  {lang === "zh" && e.nameZh ? e.nameZh : e.name}
+                </span>
+                {url ? (
+                  <a href={url} target="_blank" rel="noreferrer" className="spacer" style={{ fontSize: 11.5 }}>
+                    {t("openNew")} ↗
+                  </a>
+                ) : null}
+              </div>
+              <div
+                style={{
+                  height: 200,
+                  background:
+                    "repeating-linear-gradient(45deg,var(--panel2),var(--panel2) 8px,var(--panel) 8px,var(--panel) 16px)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <span
+                  className="mono"
+                  style={{
+                    background: "var(--panel)",
+                    padding: "5px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  {query ? `iframe: ${query}` : t("enterQuery")}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card stack" style={{ maxWidth: 560 }}>
+        <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t("customEngines")}</div>
+        <form className="row" onSubmit={(e) => void addCustom(e)}>
           <input
             className="input"
+            style={{ flex: 1 }}
             placeholder={t("engineName")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
           />
           <input
-            className="input"
-            style={{ flex: 1 }}
+            className="input input-mono"
+            style={{ flex: 2 }}
             placeholder={t("engineTemplate")}
             value={newTemplate}
             onChange={(e) => setNewTemplate(e.target.value)}
           />
-          <button className="btn" type="submit">
+          <button type="submit" className="btn btn-primary btn-sm">
             {t("addEngine")}
           </button>
         </form>
         {custom.map((c) => (
-          <div key={c.id} className="row" style={{ justifyContent: "space-between" }}>
-            <span>
-              {c.name} — <code style={{ fontSize: 11 }}>{c.template}</code>
-            </span>
-            <button className="btn" type="button" onClick={() => void removeCustom(c.id)}>
+          <div key={c.id} className="row">
+            <span style={{ fontWeight: 500, fontSize: 13 }}>{c.name}</span>
+            <span className="mono grow">{c.template}</span>
+            <button type="button" className="btn btn-sm" onClick={() => void removeCustom(c.id)}>
               {t("remove")}
             </button>
           </div>
         ))}
-      </div>
-
-      <div className="grid-cards">
-        {engines.map((e) => {
-          const url = q ? buildSearchUrl(e.template, q) : "";
-          return (
-            <div key={e.id} className="card stack">
-              <strong>{lang === "zh" && e.nameZh ? e.nameZh : e.name}</strong>
-              {url ? (
-                <a href={url} target="_blank" rel="noreferrer">
-                  {t("open")}
-                </a>
-              ) : (
-                <span className="muted">{t("enterQuery")}</span>
-              )}
-              <div className="muted" style={{ fontSize: 11, wordBreak: "break-all" }}>
-                {e.template}
-              </div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );

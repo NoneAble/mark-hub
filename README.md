@@ -98,6 +98,19 @@ This bounded harness builds the real image, allocates run-unique high loopback p
 
 ## Cloudflare
 
+### Local dev (Worker + SPA assets)
+
+Wrangler serves the built SPA from `apps/web/dist` — rebuild after frontend changes:
+
+```bash
+pnpm dev:cf
+# equivalent: pnpm --filter @markhub/web build && cd apps/worker && pnpm exec wrangler dev --local
+```
+
+For UI-only work with hot reload, use `pnpm dev:web` instead.
+
+### Production deploy
+
 Production deploy (remote D1 + all required secrets). Do **not** use `--local` for production migrations.
 
 ```bash

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { useI18n } from "../../i18n";
+import { applyThemeMode } from "../../lib/theme";
+import { Chip, PageHeader } from "../../components/ui";
 
 function asArray(v: unknown): string[] {
   if (Array.isArray(v)) return v.map(String);
@@ -40,10 +42,11 @@ export function AppSettingsPage() {
     });
     setS(r);
     if (s.language === "zh" || s.language === "en") setLang(s.language);
-    const dark =
-      s.theme === "dark" ||
-      (s.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    document.documentElement.classList.toggle("dark", !!dark);
+    applyThemeMode(s.theme);
+    if (s.theme === "dark" || s.theme === "light") {
+      localStorage.setItem("markhub_theme", s.theme);
+    }
+    if (s.card_density) document.documentElement.dataset.density = s.card_density;
     setMsg("Saved");
   }
 
@@ -57,114 +60,123 @@ export function AppSettingsPage() {
   }
 
   return (
-    <div className="stack" style={{ maxWidth: 520 }}>
-      <h1 className="page-title">{t("settings")}</h1>
-      <div className="card stack">
-        <label>
-          Density
-          <select
-            className="input"
-            value={s.card_density || "comfortable"}
-            onChange={(e) => setS({ ...s, card_density: e.target.value })}
-          >
-            <option value="compact">compact</option>
-            <option value="comfortable">comfortable</option>
-            <option value="spacious">spacious</option>
-          </select>
-        </label>
-        <label>
-          Wallpaper URL
-          <input
-            className="input"
-            value={s.wallpaper || ""}
-            onChange={(e) => setS({ ...s, wallpaper: e.target.value })}
-          />
-        </label>
-        <label>
-          Theme
-          <select
-            className="input"
-            value={s.theme || "system"}
-            onChange={(e) => setS({ ...s, theme: e.target.value })}
-          >
-            <option value="system">system</option>
-            <option value="light">light</option>
-            <option value="dark">dark</option>
-          </select>
-        </label>
-        <label>
-          Language ({lang})
-          <select
-            className="input"
-            value={s.language || "auto"}
-            onChange={(e) => setS({ ...s, language: e.target.value })}
-          >
-            <option value="auto">auto</option>
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-        <label>
-          Collection / board title
-          <input
-            className="input"
-            value={s.collection_board_name || ""}
-            onChange={(e) => setS({ ...s, collection_board_name: e.target.value })}
-            data-testid="collection-board-name"
-            placeholder="Workbench title override"
-          />
-        </label>
-        <label>
-          Root folder
-          <select
-            className="input"
-            value={s.root_folder_id || ""}
-            onChange={(e) => setS({ ...s, root_folder_id: e.target.value || null })}
-            data-testid="root-folder"
-          >
-            <option value="">(all folders)</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-                {f.is_system ? " ⚙" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
-          <legend>Pinned folders</legend>
-          <div className="stack" style={{ maxHeight: 160, overflow: "auto" }}>
-            {folders.map((f) => (
-              <label key={f.id} className="row">
-                <input
-                  type="checkbox"
-                  checked={pinned.includes(f.id)}
-                  onChange={() => toggleList("pinned_folder_ids", f.id)}
-                />
-                {f.name}
-              </label>
+    <div style={{ maxWidth: 560 }}>
+      <PageHeader title={t("settings")} />
+      <div className="stack" style={{ gap: 14 }}>
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("density")}</div>
+          <div className="row" style={{ gap: 8 }}>
+            {(["compact", "comfortable", "spacious"] as const).map((d) => (
+              <Chip
+                key={d}
+                active={(s.card_density || "comfortable") === d}
+                onClick={() => setS({ ...s, card_density: d })}
+              >
+                {t(d)}
+              </Chip>
             ))}
           </div>
-        </fieldset>
-        <fieldset style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
-          <legend>Expanded folders (default tree state)</legend>
-          <div className="stack" style={{ maxHeight: 160, overflow: "auto" }}>
-            {folders.map((f) => (
-              <label key={f.id} className="row">
-                <input
-                  type="checkbox"
-                  checked={expanded.includes(f.id)}
-                  onChange={() => toggleList("expanded_folder_ids", f.id)}
-                />
-                {f.name}
-              </label>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("theme")}</div>
+          <div className="row" style={{ gap: 8 }}>
+            {(["system", "light", "dark"] as const).map((th) => (
+              <Chip
+                key={th}
+                active={(s.theme || "system") === th}
+                onClick={() => setS({ ...s, theme: th })}
+              >
+                {th === "light" ? t("light") : th === "dark" ? t("dark") : "System"}
+              </Chip>
             ))}
           </div>
-        </fieldset>
-        <button className="btn btn-primary" type="button" onClick={() => void save()} data-testid="save-settings">
-          {t("save")}
-        </button>
-        {msg ? <div className="success">{msg}</div> : null}
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("language")}</div>
+          <div className="row" style={{ gap: 8 }}>
+            <Chip active={(s.language || lang) === "zh"} onClick={() => setS({ ...s, language: "zh" })}>
+              中文
+            </Chip>
+            <Chip active={(s.language || lang) === "en"} onClick={() => setS({ ...s, language: "en" })}>
+              English
+            </Chip>
+          </div>
+        </div>
+
+        <div className="card stack" style={{ padding: 18 }}>
+          <label className="field">
+            Collection / board title
+            <input
+              className="input"
+              value={s.collection_board_name || ""}
+              onChange={(e) => setS({ ...s, collection_board_name: e.target.value })}
+              data-testid="collection-board-name"
+              placeholder="Workbench title override"
+            />
+          </label>
+          <label className="field">
+            {t("wallpaper")}
+            <input
+              className="input input-mono"
+              value={s.wallpaper || ""}
+              onChange={(e) => setS({ ...s, wallpaper: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            Root folder
+            <select
+              className="input"
+              value={s.root_folder_id || ""}
+              onChange={(e) => setS({ ...s, root_folder_id: e.target.value || null })}
+              data-testid="root-folder"
+            >
+              <option value="">—</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <div className="section-label" style={{ marginBottom: 8 }}>
+              Pinned folders
+            </div>
+            <div className="row wrap">
+              {folders.map((f) => (
+                <Chip
+                  key={f.id}
+                  active={pinned.includes(f.id)}
+                  onClick={() => toggleList("pinned_folder_ids", f.id)}
+                >
+                  {f.name}
+                </Chip>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="section-label" style={{ marginBottom: 8 }}>
+              Expanded folders
+            </div>
+            <div className="row wrap">
+              {folders.map((f) => (
+                <Chip
+                  key={f.id}
+                  active={expanded.includes(f.id)}
+                  onClick={() => toggleList("expanded_folder_ids", f.id)}
+                >
+                  {f.name}
+                </Chip>
+              ))}
+            </div>
+          </div>
+          <button className="btn btn-primary" type="button" onClick={() => void save()} style={{ alignSelf: "flex-start" }}>
+            {t("save")}
+          </button>
+          {msg ? <div className="success">{msg}</div> : null}
+        </div>
       </div>
     </div>
   );

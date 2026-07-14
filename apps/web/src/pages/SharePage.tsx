@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../i18n";
+import { BookmarkCard } from "../components/BookmarkCard";
+import { LogoMark, PageHeader } from "../components/ui";
 
 export function SharePage() {
   const { token } = useParams();
@@ -28,7 +30,6 @@ export function SharePage() {
   async function unlock() {
     setError("");
     try {
-      // F-018: body-based unlock, never put password in query string
       const r = await api.post(`/shares/${token}/unlock`, { password });
       setData(r);
       setNeedsPassword(false);
@@ -43,41 +44,52 @@ export function SharePage() {
   }, [token]);
 
   return (
-    <div style={{ maxWidth: 720, margin: "40px auto", padding: 20 }}>
-      <h1>{t("shares")}</h1>
-      {needsPassword ? (
-        <div className="card stack">
-          <input
-            className="input"
-            type="password"
-            placeholder={t("password")}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <button className="btn btn-primary" type="button" onClick={() => void unlock()}>
-            Unlock
-          </button>
+    <div style={{ minHeight: "100vh" }}>
+      <header className="public-topbar">
+        <div className="row" style={{ gap: 9 }}>
+          <LogoMark size={28} />
+          <strong style={{ fontSize: 16 }}>{t("appName")}</strong>
+          <span className="badge">{t("shares")}</span>
         </div>
-      ) : null}
-      {error && !needsPassword ? <div className="error">{error}</div> : null}
-      {error && needsPassword ? <div className="error">{error}</div> : null}
-      {data?.bookmark ? (
-        <div className="card">
-          <h2>{data.bookmark.title}</h2>
-          <a href={data.bookmark.url}>{data.bookmark.url}</a>
-          <p className="muted">{data.bookmark.description}</p>
-        </div>
-      ) : null}
-      {data?.bookmarks ? (
-        <div className="stack">
-          <h2>{data.folder?.name}</h2>
-          {data.bookmarks.map((b: any, i: number) => (
-            <a key={i} className="card" href={b.url} target="_blank" rel="noreferrer">
-              {b.title}
-            </a>
-          ))}
-        </div>
-      ) : null}
+        <Link to="/" className="btn btn-sm spacer">
+          {t("publicNav")}
+        </Link>
+      </header>
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 20px 60px" }}>
+        <PageHeader title={data?.folder?.name || data?.bookmark?.title || t("shares")} />
+        {needsPassword ? (
+          <div className="card stack" style={{ maxWidth: 360 }}>
+            <label className="field">
+              {t("password")}
+              <input
+                className="input"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <button className="btn btn-primary" type="button" onClick={() => void unlock()}>
+              {t("unlock")}
+            </button>
+          </div>
+        ) : null}
+        {error ? <div className="error" style={{ marginBottom: 12 }}>{error}</div> : null}
+        {data?.bookmark ? (
+          <div className="grid-cards">
+            <BookmarkCard
+              bm={data.bookmark}
+              linkTitleOnly={false}
+            />
+          </div>
+        ) : null}
+        {data?.bookmarks ? (
+          <div className="grid-cards">
+            {data.bookmarks.map((b: any) => (
+              <BookmarkCard key={b.id || b.url} bm={b} linkTitleOnly={false} />
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

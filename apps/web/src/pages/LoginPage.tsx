@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../i18n";
+import { LogoMark } from "../components/ui";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -27,50 +28,42 @@ export function LoginPage() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "column",
-        gap: 22,
-      }}
-    >
+    <div className="login-page">
       <div className="row" style={{ gap: 10 }}>
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            background: "var(--accent)",
-          }}
-        />
+        <LogoMark size={36} />
         <strong style={{ fontSize: 22 }}>{t("appName")}</strong>
       </div>
-      <form className="card stack login-card" onSubmit={onSubmit}>
-        <h2 style={{ margin: 0 }}>{t("login")}</h2>
-        <label className="stack" style={{ gap: 4 }}>
-          <span className="muted">{t("username")}</span>
-          <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} />
+      <form className="login-card" onSubmit={onSubmit}>
+        <div style={{ fontWeight: 700, fontSize: 16 }}>{t("adminLogin")}</div>
+        <label className="field">
+          {t("username")}
+          <input
+            className="input"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+          />
         </label>
-        <label className="stack" style={{ gap: 4 }}>
-          <span className="muted">{t("password")}</span>
+        <label className="field">
+          {t("password")}
           <input
             className="input"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            placeholder="admin123"
+            autoComplete="current-password"
           />
         </label>
         {error ? <div className="error">{error}</div> : null}
-        <button className="btn btn-primary" type="submit" disabled={loading}>
+        <button className="btn btn-primary" type="submit" disabled={loading} style={{ padding: 11 }}>
           {loading ? "…" : t("login")}
         </button>
-        <Link to="/" className="muted">
-          ← {t("publicNav")}
-        </Link>
+        <div style={{ fontSize: 11.5, color: "var(--text3)", textAlign: "center" }}>{t("loginHint")}</div>
       </form>
+      <Link to="/" style={{ fontSize: 13 }}>
+        ← {t("backToNav")}
+      </Link>
     </div>
   );
 }

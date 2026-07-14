@@ -29,6 +29,7 @@ export function AdminBackup() {
   const [strategy, setStrategy] = useState<ImportStrategy>("skip_duplicate");
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<"file" | "dav" | "s3">("file");
 
   useEffect(() => {
     void api.get("/backup/s3").then(setS3);
@@ -129,39 +130,88 @@ export function AdminBackup() {
   }
 
   return (
-    <div className="stack">
-      <h1 className="page-title">{t("backup")}</h1>
-      {msg ? <div className="success">{msg}</div> : null}
-      {err ? <div className="error">{err}</div> : null}
-
-      <div className="card stack">
-        <h3>File export / import</h3>
-        <div className="row wrap">
-          <button className="btn" type="button" onClick={() => void exportFmt("json")}>
-            Export JSON
+    <div style={{ maxWidth: 860 }}>
+      <h1 className="page-title" style={{ marginBottom: 14 }}>
+        {t("backup")}
+      </h1>
+      <div className="tabs">
+        {(
+          [
+            ["file", "File"],
+            ["dav", "WebDAV"],
+            ["s3", "S3 / R2"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`tab${tab === id ? " active" : ""}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
           </button>
-          <button className="btn" type="button" onClick={() => void exportFmt("csv")}>
-            Export CSV
-          </button>
-          <button className="btn" type="button" onClick={() => void exportFmt("html")}>
-            Export HTML
-          </button>
-        </div>
+        ))}
+      </div>
+      {msg ? <div className="success" style={{ marginBottom: 12 }}>{msg}</div> : null}
+      {err ? <div className="error" style={{ marginBottom: 12 }}>{err}</div> : null}
 
-        <label className="stack" style={{ gap: 6 }}>
-          <span>Import file (JSON / CSV / Netscape HTML)</span>
-          <input
-            type="file"
-            accept=".json,.csv,.html,.htm,text/html,text/csv,application/json"
-            data-testid="import-file"
-            onChange={(e) => void onFile(e.target.files?.[0] || null)}
-          />
-          {fileName ? <span className="muted">Selected: {fileName}</span> : null}
-        </label>
-
-        <div className="row wrap">
-          <label>
-            Format
+      {tab === "file" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div className="card stack">
+            <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t("export")}</div>
+            <div className="muted-sm">书签树 + 文件夹 + 标签 · 兼容 LiteMark JSON</div>
+            <div className="row wrap">
+              <button className="btn btn-soft" type="button" onClick={() => void exportFmt("json")}>
+                JSON
+              </button>
+              <button className="btn btn-soft" type="button" onClick={() => void exportFmt("csv")}>
+                CSV
+              </button>
+              <button className="btn btn-soft" type="button" onClick={() => void exportFmt("html")}>
+                HTML
+              </button>
+            </div>
+          </div>
+          <div className="card stack">
+            <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t("import")}</div>
+            <div className="muted-sm">支持 JSON / CSV / Netscape HTML</div>
+            <label
+              className="stack"
+              style={{
+                gap: 6,
+                border: "1.5px dashed var(--border)",
+                borderRadius: 11,
+                padding: 20,
+                textAlign: "center",
+                cursor: "pointer",
+                color: "var(--text3)",
+                fontSize: 12.5,
+              }}
+            >
+              ⇪ 拖入文件或点击选择
+              <input
+                type="file"
+                accept=".json,.csv,.html,.htm,text/html,text/csv,application/json"
+                data-testid="import-file"
+                style={{ display: "none" }}
+                onChange={(e) => void onFile(e.target.files?.[0] || null)}
+              />
+              {fileName ? <span className="muted">Selected: {fileName}</span> : null}
+            </label>
+            <div className="row wrap" style={{ fontSize: 11.5, color: "var(--text3)" }}>
+              <span>去重策略:</span>
+              {(["skip_duplicate", "merge", "replace_all"] as ImportStrategy[]).map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  className={`chip${strategy === st ? " active" : ""}`}
+                  data-testid={strategy === st ? "import-strategy" : undefined}
+                  onClick={() => setStrategy(st)}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
             <select
               className="input"
               value={importFormat}
@@ -172,94 +222,89 @@ export function AdminBackup() {
               <option value="csv">CSV</option>
               <option value="html">HTML (Netscape)</option>
             </select>
-          </label>
-          <label>
-            Strategy
-            <select
+            <textarea
               className="input"
-              value={strategy}
-              onChange={(e) => setStrategy(e.target.value as ImportStrategy)}
-              data-testid="import-strategy"
+              rows={5}
+              placeholder="Paste JSON / CSV / HTML to import"
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              data-testid="import-text"
+            />
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={busy}
+              data-testid="import-submit"
+              onClick={() => void doImport()}
             >
-              <option value="skip_duplicate">skip_duplicate</option>
-              <option value="merge">merge</option>
-              <option value="replace_all">replace_all (confirm)</option>
-            </select>
+              {busy ? "Importing…" : `${t("import")} ${importFormat.toUpperCase()}`}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "s3" ? (
+        <div className="card stack" style={{ maxWidth: 560 }}>
+          <div className="row">
+            <div style={{ fontWeight: 600, fontSize: 13.5 }}>S3 / Cloudflare R2</div>
+            <span className="muted-sm spacer">endpoint · region · bucket · AK/SK</span>
+          </div>
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={!!s3.enabled}
+              onChange={(e) => setS3({ ...s3, enabled: e.target.checked })}
+            />
+            Enabled
           </label>
+          <input className="input input-mono" placeholder="endpoint" value={s3.endpoint || ""} onChange={(e) => setS3({ ...s3, endpoint: e.target.value })} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <input className="input input-mono" placeholder="region (auto)" value={s3.region || ""} onChange={(e) => setS3({ ...s3, region: e.target.value })} />
+            <input className="input input-mono" placeholder="bucket" value={s3.bucket || ""} onChange={(e) => setS3({ ...s3, bucket: e.target.value })} />
+            <input className="input input-mono" placeholder="key_prefix" value={s3.key_prefix || ""} onChange={(e) => setS3({ ...s3, key_prefix: e.target.value })} />
+            <input className="input input-mono" placeholder="backup_time HH:mm" value={s3.backup_time || "02:00"} onChange={(e) => setS3({ ...s3, backup_time: e.target.value })} />
+            <input className="input input-mono" placeholder="access_key_id" value={s3.access_key_id || ""} onChange={(e) => setS3({ ...s3, access_key_id: e.target.value })} />
+            <input className="input input-mono" type="password" placeholder={s3.secret_set ? "secret set — leave blank to keep" : "secret_access_key"} onChange={(e) => setS3({ ...s3, secret_access_key: e.target.value })} />
+          </div>
+          <div className="row">
+            <button className="btn btn-soft" type="button" onClick={() => void testS3()}>
+              Test connection
+            </button>
+            <button className="btn btn-primary" type="button" onClick={() => void api.post("/backup/s3").then(() => setMsg("S3 backup started/done"))}>
+              Run now
+            </button>
+            <button className="btn" type="button" onClick={() => void saveS3()}>
+              {t("save")}
+            </button>
+          </div>
+          {s3.last_backup_at ? <div className="muted">Last: {s3.last_backup_at}</div> : null}
         </div>
+      ) : null}
 
-        <textarea
-          className="input"
-          rows={6}
-          placeholder="Paste JSON / CSV / HTML to import, or choose a file above"
-          value={importText}
-          onChange={(e) => setImportText(e.target.value)}
-          data-testid="import-text"
-        />
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={busy}
-          data-testid="import-submit"
-          onClick={() => void doImport()}
-        >
-          {busy ? "Importing…" : `${t("import")} ${importFormat.toUpperCase()}`}
-        </button>
-      </div>
-
-      <div className="card stack">
-        <h3>S3 / R2 backup</h3>
-        <label className="row">
-          <input
-            type="checkbox"
-            checked={!!s3.enabled}
-            onChange={(e) => setS3({ ...s3, enabled: e.target.checked })}
-          />
-          Enabled
-        </label>
-        <input className="input" placeholder="endpoint" value={s3.endpoint || ""} onChange={(e) => setS3({ ...s3, endpoint: e.target.value })} />
-        <input className="input" placeholder="region (auto)" value={s3.region || ""} onChange={(e) => setS3({ ...s3, region: e.target.value })} />
-        <input className="input" placeholder="bucket" value={s3.bucket || ""} onChange={(e) => setS3({ ...s3, bucket: e.target.value })} />
-        <input className="input" placeholder="key_prefix" value={s3.key_prefix || ""} onChange={(e) => setS3({ ...s3, key_prefix: e.target.value })} />
-        <input className="input" placeholder="access_key_id" value={s3.access_key_id || ""} onChange={(e) => setS3({ ...s3, access_key_id: e.target.value })} />
-        <input className="input" type="password" placeholder={s3.secret_set ? "secret set — leave blank to keep" : "secret_access_key"} onChange={(e) => setS3({ ...s3, secret_access_key: e.target.value })} />
-        <input className="input" placeholder="backup_time HH:mm" value={s3.backup_time || "02:00"} onChange={(e) => setS3({ ...s3, backup_time: e.target.value })} />
-        <div className="row">
-          <button className="btn btn-primary" type="button" onClick={() => void saveS3()}>
-            {t("save")}
-          </button>
-          <button className="btn" type="button" onClick={() => void testS3()}>
-            Test connection
-          </button>
-          <button className="btn" type="button" onClick={() => void api.post("/backup/s3").then(() => setMsg("S3 backup started/done"))}>
-            Run now
-          </button>
+      {tab === "dav" ? (
+        <div className="card stack" style={{ maxWidth: 560 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5 }}>WebDAV</div>
+          <label className="row">
+            <input type="checkbox" checked={!!webdav.enabled} onChange={(e) => setWebdav({ ...webdav, enabled: e.target.checked })} />
+            Enabled
+          </label>
+          <input className="input input-mono" placeholder="url" value={webdav.url || ""} onChange={(e) => setWebdav({ ...webdav, url: e.target.value })} />
+          <input className="input input-mono" placeholder="username" value={webdav.username || ""} onChange={(e) => setWebdav({ ...webdav, username: e.target.value })} />
+          <input className="input input-mono" type="password" placeholder={webdav.password_set ? "password set — leave blank to keep" : "password"} onChange={(e) => setWebdav({ ...webdav, password: e.target.value })} />
+          <input className="input input-mono" placeholder="path" value={webdav.path || ""} onChange={(e) => setWebdav({ ...webdav, path: e.target.value })} />
+          <div className="row">
+            <button className="btn btn-soft" type="button" onClick={() => void testWebdav()}>
+              Test connection
+            </button>
+            <button className="btn btn-primary" type="button" onClick={() => void api.post("/backup/webdav").then(() => setMsg("WebDAV backup done"))}>
+              Run now
+            </button>
+            <button className="btn" type="button" onClick={() => void saveWebdav()}>
+              {t("save")}
+            </button>
+          </div>
         </div>
-        {s3.last_backup_at ? <div className="muted">Last: {s3.last_backup_at}</div> : null}
-      </div>
-
-      <div className="card stack">
-        <h3>WebDAV backup</h3>
-        <label className="row">
-          <input type="checkbox" checked={!!webdav.enabled} onChange={(e) => setWebdav({ ...webdav, enabled: e.target.checked })} />
-          Enabled
-        </label>
-        <input className="input" placeholder="url" value={webdav.url || ""} onChange={(e) => setWebdav({ ...webdav, url: e.target.value })} />
-        <input className="input" placeholder="username" value={webdav.username || ""} onChange={(e) => setWebdav({ ...webdav, username: e.target.value })} />
-        <input className="input" type="password" placeholder={webdav.password_set ? "password set — leave blank to keep" : "password"} onChange={(e) => setWebdav({ ...webdav, password: e.target.value })} />
-        <input className="input" placeholder="path" value={webdav.path || ""} onChange={(e) => setWebdav({ ...webdav, path: e.target.value })} />
-        <div className="row">
-          <button className="btn btn-primary" type="button" onClick={() => void saveWebdav()}>
-            {t("save")}
-          </button>
-          <button className="btn" type="button" onClick={() => void testWebdav()}>
-            Test connection
-          </button>
-          <button className="btn" type="button" onClick={() => void api.post("/backup/webdav").then(() => setMsg("WebDAV backup done"))}>
-            Run now
-          </button>
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 }

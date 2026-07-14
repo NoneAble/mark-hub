@@ -1,25 +1,22 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { useI18n } from "../../i18n";
+import { applyAccentHue, applyThemeMode } from "../../lib/theme";
+import { Chip, PageHeader } from "../../components/ui";
 
-const PRESETS: Record<string, { accent: string; label: string }> = {
-  default: { accent: "oklch(0.55 0.18 260)", label: "Default" },
-  linear: { accent: "oklch(0.6 0.18 250)", label: "Linear" },
-  emerald: { accent: "oklch(0.58 0.14 160)", label: "Emerald" },
-  rose: { accent: "oklch(0.58 0.16 20)", label: "Rose" },
-  amber: { accent: "oklch(0.7 0.14 80)", label: "Amber" },
+const PRESETS: Record<string, { hue: number; label: string }> = {
+  blue: { hue: 260, label: "Blue" },
+  green: { hue: 160, label: "Green" },
+  orange: { hue: 55, label: "Orange" },
+  purple: { hue: 300, label: "Purple" },
 };
 
 function applyTheme(s: any) {
-  const theme = s.theme || "system";
-  const dark =
-    theme === "dark" ||
-    (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.classList.toggle("dark", dark);
-  const accent = s.accent || PRESETS[s.theme_preset || "default"]?.accent;
-  if (accent) {
-    document.documentElement.style.setProperty("--accent", accent);
-    document.documentElement.style.setProperty("--accent-text", accent);
+  applyThemeMode(s.theme || "system");
+  const preset = s.theme_preset || "blue";
+  if (PRESETS[preset]) applyAccentHue(PRESETS[preset].hue);
+  else if (s.accent && String(s.accent).startsWith("oklch")) {
+    document.documentElement.style.setProperty("--accent", s.accent);
   }
   if (s.wallpaper) {
     document.body.style.backgroundImage = `url(${s.wallpaper})`;
@@ -30,6 +27,9 @@ function applyTheme(s: any) {
   }
   if (s.card_density) {
     document.documentElement.dataset.density = s.card_density;
+  }
+  if (s.theme === "dark" || s.theme === "light") {
+    localStorage.setItem("markhub_theme", s.theme);
   }
 }
 
@@ -68,96 +68,89 @@ export function AdminSettings() {
   }
 
   return (
-    <div className="stack">
-      <h1 className="page-title">{t("settings")}</h1>
-      <div className="card stack">
-        <label>
-          {t("title")}
-          <input
-            className="input"
-            value={s.site_title || ""}
-            onChange={(e) => setS({ ...s, site_title: e.target.value })}
-          />
-        </label>
-        <label>
-          {t("theme")}
-          <select
-            className="input"
-            value={s.theme || "system"}
-            onChange={(e) => setS({ ...s, theme: e.target.value })}
-          >
-            <option value="system">system</option>
-            <option value="light">light</option>
-            <option value="dark">dark</option>
-          </select>
-        </label>
-        <label>
-          {t("themePreset")}
-          <select
-            className="input"
-            value={s.theme_preset || "default"}
-            onChange={(e) => {
-              const preset = e.target.value;
-              setS({
-                ...s,
-                theme_preset: preset,
-                accent: PRESETS[preset]?.accent || s.accent,
-              });
-            }}
-          >
-            {Object.entries(PRESETS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v.label}
-              </option>
+    <div style={{ maxWidth: 640 }}>
+      <PageHeader title={t("settings")} />
+      <div className="stack" style={{ gap: 14 }}>
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("theme")}</div>
+          <div className="row" style={{ gap: 8 }}>
+            {(["light", "dark", "system"] as const).map((th) => (
+              <Chip
+                key={th}
+                active={(s.theme || "system") === th}
+                onClick={() => setS({ ...s, theme: th })}
+              >
+                {th === "light" ? t("light") : th === "dark" ? t("dark") : "System"}
+              </Chip>
             ))}
-          </select>
-        </label>
-        <label>
-          {t("accent")}
-          <input
-            className="input"
-            value={s.accent || ""}
-            onChange={(e) => setS({ ...s, accent: e.target.value })}
-            placeholder="oklch(...) or #hex"
-          />
-        </label>
-        <label>
-          {t("wallpaper")}
-          <input
-            className="input"
-            value={s.wallpaper || ""}
-            onChange={(e) => setS({ ...s, wallpaper: e.target.value })}
-            placeholder="https://..."
-          />
-        </label>
-        <label>
-          {t("language")}
-          <select
-            className="input"
-            value={s.language || lang}
-            onChange={(e) => setS({ ...s, language: e.target.value })}
-          >
-            <option value="auto">auto</option>
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-        <label>
-          {t("settings")} · density
-          <select
-            className="input"
-            value={s.card_density || "comfortable"}
-            onChange={(e) => setS({ ...s, card_density: e.target.value })}
-          >
-            <option value="compact">compact</option>
-            <option value="comfortable">comfortable</option>
-            <option value="spacious">spacious</option>
-          </select>
-        </label>
-        <button className="btn btn-primary" type="button" onClick={() => void save()}>
-          {t("save")}
-        </button>
-        {msg ? <div className="success">{msg}</div> : null}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("accent")}</div>
+          <div className="row" style={{ gap: 8 }}>
+            {Object.entries(PRESETS).map(([k, v]) => (
+              <Chip
+                key={k}
+                active={(s.theme_preset || "blue") === k}
+                onClick={() => setS({ ...s, theme_preset: k })}
+              >
+                {v.label}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("language")}</div>
+          <div className="row" style={{ gap: 8 }}>
+            <Chip active={(s.language || lang) === "zh"} onClick={() => setS({ ...s, language: "zh" })}>
+              中文
+            </Chip>
+            <Chip active={(s.language || lang) === "en"} onClick={() => setS({ ...s, language: "en" })}>
+              English
+            </Chip>
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("density")}</div>
+          <div className="row" style={{ gap: 8 }}>
+            {(["compact", "comfortable", "spacious"] as const).map((d) => (
+              <Chip
+                key={d}
+                active={(s.card_density || "comfortable") === d}
+                onClick={() => setS({ ...s, card_density: d })}
+              >
+                {t(d)}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        <div className="card stack" style={{ padding: 18 }}>
+          <label className="field">
+            {t("title")}
+            <input
+              className="input"
+              value={s.site_title || ""}
+              onChange={(e) => setS({ ...s, site_title: e.target.value })}
+            />
+          </label>
+          <label className="field">
+            {t("wallpaper")}
+            <input
+              className="input input-mono"
+              value={s.wallpaper || ""}
+              onChange={(e) => setS({ ...s, wallpaper: e.target.value })}
+              placeholder="https://..."
+            />
+          </label>
+          <button className="btn btn-primary" type="button" onClick={() => void save()} style={{ alignSelf: "flex-start" }}>
+            {t("save")}
+          </button>
+          {msg ? <div className="success">{msg}</div> : null}
+        </div>
       </div>
     </div>
   );

@@ -152,7 +152,7 @@ export function AdminBookmarks() {
 
   return (
     <div>
-      <h1 className="page-title">{t("bookmarks")}</h1>
+      <h1 className="page-title" style={{ marginBottom: 16 }}>{t("bookmarks")}</h1>
       {error ? <div className="error">{error}</div> : null}
       <form className="card row wrap" onSubmit={onCreate} style={{ marginBottom: 16 }}>
         <input

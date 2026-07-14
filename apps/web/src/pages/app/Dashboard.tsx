@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { useI18n } from "../../i18n";
-import { QrCodeModal, faviconOf, hostnameOf } from "@markhub/ui";
+import { QrCodeModal } from "@markhub/ui";
+import { BookmarkCard } from "../../components/BookmarkCard";
+import {
+  EmptyState,
+  Modal,
+  SearchField,
+  Toast,
+  useToast,
+} from "../../components/ui";
+import { visIcon } from "../../lib/colors";
 
 function asStringArray(v: unknown): string[] {
   if (Array.isArray(v)) return v.map(String);
@@ -16,278 +25,407 @@ function asStringArray(v: unknown): string[] {
   return [];
 }
 
+type Folder = {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  visibility?: string;
+  is_system?: boolean;
+};
+type Bookmark = {
+  id: string;
+  folder_id: string;
+  title: string;
+  url: string;
+  description?: string | null;
+  visibility?: string;
+  is_favorite?: boolean;
+  is_archived?: boolean;
+  tags?: Array<string | { name: string }>;
+};
+
 export function Dashboard() {
   const { api } = useAuth();
-  const { t } = useI18n();
-  const [folders, setFolders] = useState<any[]>([]);
-  const [bookmarks, setBookmarks] = useState<any[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const { t, lang } = useI18n();
+  const { toast, showToast } = useToast();
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [selected, setSelected] = useState<string | "all" | "fav">("all");
   const [q, setQ] = useState("");
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [density, setDensity] = useState("comfortable");
   const [rootFolderId, setRootFolderId] = useState<string | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [collectionBoard, setCollectionBoard] = useState("");
-  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Bookmark | null>(null);
+  const [draft, setDraft] = useState({
+    title: "",
+    url: "",
+    description: "",
+    visibility: "private",
+    folder_id: "",
+    tags: "",
+  });
+
+  async function reload() {
+    const home = await api.get<{ folders: Folder[]; bookmarks: Bookmark[] }>("/nav/home");
+    setFolders(home.folders);
+    setBookmarks(home.bookmarks as Bookmark[]);
+  }
 
   useEffect(() => {
     void (async () => {
-      const home = await api.get<{ folders: any[]; bookmarks: any[] }>("/nav/home");
-      setFolders(home.folders);
-      setBookmarks(home.bookmarks);
+      await reload();
       const settings = await api.get<any>("/settings").catch(() => ({}));
-      if (settings.card_density) setDensity(settings.card_density);
+      if (settings.card_density) {
+        setDensity(settings.card_density);
+        document.documentElement.dataset.density = settings.card_density;
+      }
       if (settings.wallpaper) {
         document.body.style.backgroundImage = `url(${settings.wallpaper})`;
         document.body.style.backgroundSize = "cover";
       }
       const root = settings.root_folder_id || null;
       setRootFolderId(root);
-      if (root) setSelected(root);
       const pinned = asStringArray(settings.pinned_folder_ids);
       setPinnedIds(pinned);
-      const expanded = asStringArray(settings.expanded_folder_ids);
-      // Default: expand pinned + root ancestors; if empty, expand nothing (collapsed tree)
-      setExpandedIds(new Set(expanded.length ? expanded : pinned));
       if (settings.collection_board_name) setCollectionBoard(String(settings.collection_board_name));
-      setPrefsLoaded(true);
     })();
   }, [api]);
 
-  async function persistExpanded(next: Set<string>) {
-    setExpandedIds(next);
-    try {
-      await api.put("/settings", { expanded_folder_ids: [...next] });
-    } catch {
-      /* best-effort */
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of bookmarks) {
+      if (b.is_archived) continue;
+      m.set(b.folder_id, (m.get(b.folder_id) || 0) + 1);
     }
-  }
+    return m;
+  }, [bookmarks]);
 
-  function toggleExpand(id: string) {
-    const next = new Set(expandedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    void persistExpanded(next);
-  }
-
-  const treeRoots = useMemo(() => {
-    const byParent = new Map<string | null, any[]>();
+  const treeNodes = useMemo(() => {
+    const byParent = new Map<string | null, Folder[]>();
     for (const f of folders) {
       const list = byParent.get(f.parent_id) || [];
       list.push(f);
       byParent.set(f.parent_id, list);
     }
-    return byParent;
-  }, [folders]);
+    const out: { id: string | "all" | "fav"; name: string; icon: string; pad: number; count: number; vis?: string }[] = [
+      { id: "all", name: t("all"), icon: "◉", pad: 0, count: bookmarks.filter((b) => !b.is_archived).length },
+      { id: "fav", name: t("favorites"), icon: "★", pad: 0, count: bookmarks.filter((b) => b.is_favorite && !b.is_archived).length },
+    ];
+    function walk(parent: string | null, pad: number) {
+      for (const f of byParent.get(parent) || []) {
+        if (rootFolderId && parent === null && f.id !== rootFolderId && !folders.some((x) => x.id === rootFolderId)) {
+          // still show all if root missing
+        }
+        out.push({
+          id: f.id,
+          name: f.name,
+          icon: f.is_system ? "⬇" : pad > 0 ? "·" : "📁",
+          pad,
+          count: counts.get(f.id) || 0,
+          vis: f.visibility,
+        });
+        walk(f.id, pad + 14);
+      }
+    }
+    if (rootFolderId) {
+      const root = folders.find((f) => f.id === rootFolderId);
+      if (root) {
+        out.push({
+          id: root.id,
+          name: root.name,
+          icon: "📁",
+          pad: 0,
+          count: counts.get(root.id) || 0,
+          vis: root.visibility,
+        });
+        walk(root.id, 14);
+      } else {
+        walk(null, 0);
+      }
+    } else {
+      walk(null, 0);
+    }
+    return out;
+  }, [folders, bookmarks, counts, rootFolderId, t]);
 
-  const pinnedFolders = useMemo(
-    () => pinnedIds.map((id) => folders.find((f) => f.id === id)).filter(Boolean),
-    [pinnedIds, folders],
+  const shown = useMemo(() => {
+    return bookmarks.filter((b) => {
+      if (b.is_archived) return false;
+      if (selected === "fav" && !b.is_favorite) return false;
+      if (selected !== "all" && selected !== "fav" && b.folder_id !== selected) return false;
+      if (!q.trim()) return true;
+      const qq = q.toLowerCase();
+      const tags = (b.tags || []).map((x) => (typeof x === "string" ? x : x.name)).join(" ");
+      return (
+        b.title.toLowerCase().includes(qq) ||
+        b.url.toLowerCase().includes(qq) ||
+        (b.description || "").toLowerCase().includes(qq) ||
+        tags.toLowerCase().includes(qq)
+      );
+    });
+  }, [bookmarks, selected, q]);
+
+  function openAdd() {
+    setDraft({
+      title: "",
+      url: "",
+      description: "",
+      visibility: "private",
+      folder_id: selected !== "all" && selected !== "fav" ? selected : folders.find((f) => f.is_system)?.id || folders[0]?.id || "",
+      tags: "",
+    });
+    setAdding(true);
+  }
+
+  function openEdit(b: Bookmark) {
+    setEditing(b);
+    setDraft({
+      title: b.title,
+      url: b.url,
+      description: b.description || "",
+      visibility: b.visibility || "private",
+      folder_id: b.folder_id,
+      tags: (b.tags || []).map((x) => (typeof x === "string" ? x : x.name)).join(", "),
+    });
+  }
+
+  async function saveAdd(e: FormEvent) {
+    e.preventDefault();
+    await api.post("/bookmarks", {
+      title: draft.title,
+      url: draft.url,
+      description: draft.description,
+      visibility: draft.visibility,
+      folder_id: draft.folder_id || undefined,
+      tags: draft.tags
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+    setAdding(false);
+    showToast(t("addBm"));
+    await reload();
+  }
+
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    await api.patch(`/bookmarks/${editing.id}`, {
+      title: draft.title,
+      url: draft.url,
+      description: draft.description,
+      visibility: draft.visibility,
+      folder_id: draft.folder_id || undefined,
+      tags: draft.tags
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    });
+    setEditing(null);
+    showToast(t("save"));
+    await reload();
+  }
+
+  async function toggleFav(b: Bookmark) {
+    await api.patch(`/bookmarks/${b.id}`, { is_favorite: !b.is_favorite });
+    await reload();
+  }
+
+  async function deleteBm(b: Bookmark) {
+    if (!confirm(t("delete") + "?")) return;
+    await api.delete(`/bookmarks/${b.id}`);
+    showToast(t("delete"));
+    await reload();
+  }
+
+  async function shareFolder() {
+    if (selected === "all" || selected === "fav") {
+      showToast(lang === "zh" ? "请先选择一个文件夹" : "Select a folder first");
+      return;
+    }
+    try {
+      const r = await api.post<any>("/shares", { folder_id: selected });
+      const url = `${window.location.origin}/s/${r.token || r.id}`;
+      await navigator.clipboard.writeText(url);
+      showToast(lang === "zh" ? "分享链接已复制" : "Share link copied");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t("failed"));
+    }
+  }
+
+  const formFields = (
+    <>
+      <label className="field">
+        {t("title")}
+        <input className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required />
+      </label>
+      <label className="field">
+        {t("url")}
+        <input className="input input-mono" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} required />
+      </label>
+      <label className="field">
+        {t("description")}
+        <input className="input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+      </label>
+      <label className="field">
+        {t("folders")}
+        <select className="input" value={draft.folder_id} onChange={(e) => setDraft({ ...draft, folder_id: e.target.value })}>
+          {folders.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field">
+        {t("visibility")}
+        <select className="input" value={draft.visibility} onChange={(e) => setDraft({ ...draft, visibility: e.target.value })}>
+          <option value="public">{t("public")}</option>
+          <option value="unlisted">{t("unlisted")}</option>
+          <option value="private">{t("private")}</option>
+        </select>
+      </label>
+      <label className="field">
+        {t("tagsField")}
+        <input className="input" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
+      </label>
+    </>
   );
 
-  const shown = bookmarks.filter((b) => {
-    if (selected && b.folder_id !== selected) return false;
-    if (!q) return !b.is_archived;
-    const qq = q.toLowerCase();
-    return (
-      b.title.toLowerCase().includes(qq) ||
-      b.url.toLowerCase().includes(qq) ||
-      (b.description || "").toLowerCase().includes(qq)
-    );
-  });
-
-  const gap = density === "compact" ? 8 : density === "spacious" ? 18 : 12;
-  const treeStartParent = rootFolderId || null;
-
   return (
-    <div>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
-        <h1 className="page-title" style={{ margin: 0 }}>
-          {collectionBoard || t("workbench")}
-        </h1>
-        <input
-          className="input"
-          style={{ maxWidth: 280 }}
-          placeholder={t("search")}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          data-testid="dashboard-search"
-        />
-      </div>
-      {prefsLoaded && (rootFolderId || pinnedIds.length || collectionBoard) ? (
-        <div className="muted" style={{ marginBottom: 8 }} data-testid="dashboard-prefs">
-          {rootFolderId ? `root=${rootFolderId.slice(0, 8)}… ` : ""}
-          {pinnedIds.length ? `pinned=${pinnedIds.length} ` : ""}
-          {collectionBoard ? `board=${collectionBoard}` : ""}
-        </div>
-      ) : null}
-      {pinnedFolders.length ? (
-        <div className="row wrap" style={{ marginBottom: 12 }} data-testid="pinned-folders">
-          {pinnedFolders.map((f: any) => (
+    <div className="dashboard-grid" data-density={density}>
+      <aside className="dashboard-tree" data-testid="folder-tree">
+        {pinnedIds.length ? (
+          <div style={{ marginBottom: 10, padding: "0 4px" }} data-testid="pinned-folders">
+            {pinnedIds
+              .map((id) => folders.find((f) => f.id === id))
+              .filter(Boolean)
+              .map((f) => (
+                <button
+                  key={f!.id}
+                  type="button"
+                  className={`folder-item${selected === f!.id ? " active" : ""}`}
+                  onClick={() => setSelected(f!.id)}
+                  style={{ marginBottom: 2 }}
+                >
+                  📌 {f!.name}
+                </button>
+              ))}
+          </div>
+        ) : null}
+        <div className="stack" style={{ gap: 2 }}>
+          {treeNodes.map((n) => (
             <button
-              key={f.id}
+              key={String(n.id)}
               type="button"
-              className="btn"
-              style={{
-                borderColor: selected === f.id ? "var(--accent)" : undefined,
-              }}
-              onClick={() => setSelected(f.id)}
+              className={`folder-item${selected === n.id ? " active" : ""}`}
+              data-testid={typeof n.id === "string" && n.id !== "all" && n.id !== "fav" ? `folder-node-${n.id}` : undefined}
+              onClick={() => setSelected(n.id)}
             >
-              📌 {f.name}
+              <span style={{ paddingLeft: n.pad, width: 15, textAlign: "center", color: "var(--text3)", flex: "none" }}>
+                {n.icon}
+              </span>
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{n.name}</span>
+              {n.vis ? <span style={{ fontSize: 10 }}>{visIcon(n.vis)}</span> : null}
+              <span className="folder-count">{n.count}</span>
             </button>
           ))}
         </div>
-      ) : null}
-      <div className="dashboard-grid">
-        <div className="card" style={{ padding: 12 }}>
-          <div className="muted" style={{ marginBottom: 8 }}>
-            {t("folders")}
-          </div>
-          <FolderTree
-            byParent={treeRoots}
-            parentId={treeStartParent}
-            selected={selected}
-            onSelect={setSelected}
-            expanded={expandedIds}
-            onToggle={toggleExpand}
-            startAsRoots={!!rootFolderId}
-            rootFolderId={rootFolderId}
+        <button
+          type="button"
+          className="btn"
+          style={{ marginTop: 10, width: "100%" }}
+          data-testid="dashboard-all"
+          onClick={() => setSelected("all")}
+        >
+          {t("allFolders")}
+        </button>
+      </aside>
+
+      <div className="dashboard-main">
+        <div className="row" style={{ gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+          <SearchField
+            value={q}
+            onChange={setQ}
+            placeholder={t("searchPh")}
+            style={{ flex: 1, maxWidth: 380 }}
+            testId="dashboard-search"
           />
-          <button
-            className="btn"
-            style={{ marginTop: 8, width: "100%" }}
-            type="button"
-            onClick={() => setSelected(rootFolderId)}
-            data-testid="dashboard-all"
-          >
-            {rootFolderId ? "Root" : "All"}
+          <span className="muted-sm">
+            {shown.length} {lang === "zh" ? "项" : "items"}
+            {collectionBoard ? ` · ${collectionBoard}` : ""}
+          </span>
+          <button type="button" className="btn btn-soft btn-sm spacer" onClick={() => void shareFolder()}>
+            ⇗ {t("share")}
+          </button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={openAdd}>
+            + {t("addBm")}
           </button>
         </div>
-        <div className="grid-cards" style={{ gap }} data-testid="bookmark-cards">
-          {shown.map((b) => (
-            <div key={b.id} className="bm-card" data-testid={`bm-card-${b.id}`}>
-              <div className="row" style={{ gap: 8 }}>
-                <img src={faviconOf(b.url)} width={18} height={18} alt="" />
-                <a href={b.url} target="_blank" rel="noreferrer" style={{ fontWeight: 600, color: "inherit" }}>
-                  {b.title}
-                </a>
-              </div>
-              <div className="muted">{hostnameOf(b.url)}</div>
-              <div className="row">
-                <span className="badge">{b.visibility}</span>
-                {b.is_favorite ? <span className="badge">★</span> : null}
-                <button
-                  className="btn"
-                  type="button"
-                  style={{ marginLeft: "auto", padding: "4px 8px", fontSize: 12 }}
-                  data-testid={`qr-${b.id}`}
-                  onClick={() => setQrUrl(b.url)}
-                >
-                  QR
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <QrCodeModal url={qrUrl || ""} open={!!qrUrl} onClose={() => setQrUrl(null)} />
-    </div>
-  );
-}
 
-function FolderTree({
-  byParent,
-  parentId,
-  selected,
-  onSelect,
-  expanded,
-  onToggle,
-  depth = 0,
-  startAsRoots = false,
-  rootFolderId = null,
-}: {
-  byParent: Map<string | null, any[]>;
-  parentId: string | null;
-  selected: string | null;
-  onSelect: (id: string) => void;
-  expanded: Set<string>;
-  onToggle: (id: string) => void;
-  depth?: number;
-  startAsRoots?: boolean;
-  rootFolderId?: string | null;
-}) {
-  // When a root folder is set, show that folder as the top node then its children
-  let kids: any[] = [];
-  if (depth === 0 && startAsRoots && rootFolderId) {
-    // Find the root folder object among all folders
-    for (const list of byParent.values()) {
-      const found = list.find((f) => f.id === rootFolderId);
-      if (found) {
-        kids = [found];
-        break;
-      }
-    }
-  } else {
-    kids = byParent.get(parentId) || [];
-  }
-
-  return (
-    <div>
-      {kids.map((f) => {
-        const hasChildren = (byParent.get(f.id) || []).length > 0;
-        const isOpen = expanded.has(f.id);
-        return (
-          <div key={f.id} data-testid={`folder-node-${f.id}`}>
-            <div className="row" style={{ gap: 2 }}>
-              {hasChildren ? (
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ padding: "2px 6px", fontSize: 11 }}
-                  aria-label={isOpen ? "collapse" : "expand"}
-                  data-testid={`folder-toggle-${f.id}`}
-                  onClick={() => onToggle(f.id)}
-                >
-                  {isOpen ? "▾" : "▸"}
-                </button>
-              ) : (
-                <span style={{ width: 24 }} />
-              )}
-              <button
-                type="button"
-                onClick={() => onSelect(f.id)}
-                style={{
-                  display: "block",
-                  flex: 1,
-                  textAlign: "left",
-                  border: "none",
-                  background: selected === f.id ? "var(--accent-weak)" : "transparent",
-                  color: "var(--text)",
-                  padding: "6px 8px",
-                  paddingLeft: 8 + depth * 12,
-                  borderRadius: 6,
-                  fontSize: 13,
-                }}
-              >
-                {f.name}
-                {f.is_system ? " ⚙" : ""}
-              </button>
-            </div>
-            {hasChildren && isOpen ? (
-              <FolderTree
-                byParent={byParent}
-                parentId={f.id}
-                selected={selected}
-                onSelect={onSelect}
-                expanded={expanded}
-                onToggle={onToggle}
-                depth={depth + 1}
+        {shown.length ? (
+          <div className="grid-cards" data-testid="bookmark-cards">
+            {shown.map((b) => (
+              <BookmarkCard
+                key={b.id}
+                bm={b}
+                onFav={() => void toggleFav(b)}
+                onEdit={() => openEdit(b)}
+                onQr={() => setQrUrl(b.url)}
+                onDelete={() => void deleteBm(b)}
               />
-            ) : null}
+            ))}
           </div>
-        );
-      })}
+        ) : (
+          <EmptyState>{t("empty")}</EmptyState>
+        )}
+      </div>
+
+      <Modal
+        open={adding}
+        title={t("newBm")}
+        onClose={() => setAdding(false)}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={() => setAdding(false)}>
+              {t("cancel")}
+            </button>
+            <button type="submit" form="dash-add" className="btn btn-primary">
+              {t("save")}
+            </button>
+          </>
+        }
+      >
+        <form id="dash-add" className="stack" onSubmit={(e) => void saveAdd(e)}>
+          {formFields}
+        </form>
+      </Modal>
+
+      <Modal
+        open={!!editing}
+        title={t("editBm")}
+        onClose={() => setEditing(null)}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={() => setEditing(null)}>
+              {t("cancel")}
+            </button>
+            <button type="submit" form="dash-edit" className="btn btn-primary">
+              {t("save")}
+            </button>
+          </>
+        }
+      >
+        <form id="dash-edit" className="stack" onSubmit={(e) => void saveEdit(e)}>
+          {formFields}
+        </form>
+      </Modal>
+
+      <QrCodeModal url={qrUrl || ""} open={!!qrUrl} onClose={() => setQrUrl(null)} />
+      <Toast message={toast} />
     </div>
   );
 }

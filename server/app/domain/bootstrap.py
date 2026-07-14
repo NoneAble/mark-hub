@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import Folder, Setting, User
+from app.models import Bookmark, Folder, Setting, User
 from app.security.auth import hash_password
 from app.utils.timeutil import server_now
 
@@ -14,6 +14,7 @@ async def bootstrap_admin_and_inbox(db: AsyncSession) -> User:
     settings = get_settings()
     result = await db.execute(select(User).limit(1))
     user = result.scalar_one_or_none()
+    created_user = user is None
     if user is None:
         user = User(
             username=settings.default_admin_username,
@@ -62,7 +63,316 @@ async def bootstrap_admin_and_inbox(db: AsyncSession) -> User:
             )
         )
     await db.flush()
+
+    # Seed prototype demo library once (fresh empty library). Skip under pytest.
+    import os
+
+    testing = (
+        os.environ.get("MARKHUB_TESTING") == "1"
+        or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        or "pytest" in os.environ.get("_", "")
+    )
+    if (
+        settings.seed_demo_data
+        and not testing
+        and (created_user or await _library_is_empty(db, user.id))
+    ):
+        await seed_demo_library(db, user.id, inbox.id)
+
     return user
+
+
+async def _library_is_empty(db: AsyncSession, user_id: str) -> bool:
+    n = (
+        await db.execute(
+            select(func.count())
+            .select_from(Bookmark)
+            .where(Bookmark.user_id == user_id, Bookmark.deleted_at.is_(None))
+        )
+    ).scalar_one()
+    # Only seed when there are zero bookmarks AND only system folder(s)
+    non_system = (
+        await db.execute(
+            select(func.count())
+            .select_from(Folder)
+            .where(
+                Folder.user_id == user_id,
+                Folder.is_system == False,  # noqa: E712
+                Folder.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    return int(n or 0) == 0 and int(non_system or 0) == 0
+
+
+async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> None:
+    """Seed folders/bookmarks matching ui-design MarkHub prototype mock data."""
+    # Guard: never re-seed if demo marker present
+    marker = (
+        await db.execute(
+            select(Setting).where(
+                Setting.user_id == user_id, Setting.key == "demo_seeded"
+            )
+        )
+    ).scalar_one_or_none()
+    if marker is not None:
+        return
+
+    from app.domain.bookmarks import create_bookmark
+    from app.domain.folders import create_folder
+
+    f_dev = await create_folder(db, user_id, "开发工具", visibility="public", sort_order=10)
+    f_fe = await create_folder(
+        db, user_id, "前端", parent_id=f_dev["id"], visibility="public", sort_order=11
+    )
+    f_ops = await create_folder(
+        db, user_id, "DevOps", parent_id=f_dev["id"], visibility="public", sort_order=12
+    )
+    f_design = await create_folder(db, user_id, "设计资源", visibility="public", sort_order=20)
+    f_ai = await create_folder(db, user_id, "AI & 论文", visibility="public", sort_order=30)
+    f_read = await create_folder(db, user_id, "阅读清单", visibility="unlisted", sort_order=40)
+    await create_folder(db, user_id, "临时资料", visibility="private", sort_order=50)
+    f_priv = await create_folder(db, user_id, "私密", visibility="private", sort_order=60)
+
+    # (folder_id, title, url, desc, tags, visibility, favorite, link_status)
+    items: list[tuple] = [
+        (
+            f_dev["id"],
+            "GitHub",
+            "https://github.com",
+            "全球最大的代码托管与协作平台",
+            ["opensource", "daily"],
+            "public",
+            True,
+            "ok",
+        ),
+        (
+            f_dev["id"],
+            "MDN Web Docs",
+            "https://developer.mozilla.org",
+            "Web 标准与 API 权威文档",
+            ["docs"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_dev["id"],
+            "Stack Overflow",
+            "https://stackoverflow.com",
+            "程序员问答社区",
+            ["qa"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_fe["id"],
+            "Vercel",
+            "https://vercel.com",
+            "前端部署与托管平台",
+            ["deploy"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_fe["id"],
+            "React 文档",
+            "https://react.dev",
+            "React 官方文档与教程",
+            ["docs", "frontend"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_fe["id"],
+            "Vite",
+            "https://vitejs.dev",
+            "下一代前端构建工具",
+            ["build"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_ops["id"],
+            "Docker Hub",
+            "https://hub.docker.com",
+            "容器镜像仓库",
+            ["container"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_ops["id"],
+            "Cloudflare Dash",
+            "https://dash.cloudflare.com",
+            "Workers / D1 / R2 控制台",
+            ["deploy", "daily"],
+            "public",
+            True,
+            "ok",
+        ),
+        (
+            f_design["id"],
+            "Figma",
+            "https://figma.com",
+            "协作界面设计工具",
+            [],
+            "public",
+            True,
+            "ok",
+        ),
+        (
+            f_design["id"],
+            "Dribbble",
+            "https://dribbble.com",
+            "设计灵感与作品集社区",
+            [],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_design["id"],
+            "Coolors",
+            "https://coolors.co",
+            "配色方案生成器",
+            [],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_design["id"],
+            "Product Hunt",
+            "https://producthunt.com",
+            "新产品发现社区",
+            [],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_ai["id"],
+            "arXiv",
+            "https://arxiv.org",
+            "论文预印本平台",
+            ["paper"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_ai["id"],
+            "Hugging Face",
+            "https://huggingface.co",
+            "开源模型与数据集社区",
+            ["ml"],
+            "public",
+            True,
+            "ok",
+        ),
+        (
+            f_ai["id"],
+            "Claude",
+            "https://claude.ai",
+            "Anthropic AI 助手",
+            ["ai", "daily"],
+            "public",
+            True,
+            "ok",
+        ),
+        (
+            f_ai["id"],
+            "OpenAI Platform",
+            "https://platform.openai.com",
+            "API 文档与控制台",
+            ["ai"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_read["id"],
+            "Hacker News",
+            "https://news.ycombinator.com",
+            "技术新闻社区",
+            ["daily"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_read["id"],
+            "阮一峰周刊",
+            "https://www.ruanyifeng.com/blog/weekly/",
+            "科技爱好者周刊，每周五发布",
+            ["weekly"],
+            "public",
+            False,
+            "ok",
+        ),
+        (
+            f_priv["id"],
+            "内部 Wiki",
+            "https://wiki.internal.example",
+            "团队内部知识库",
+            ["private"],
+            "private",
+            False,
+            "ok",
+        ),
+        (
+            inbox_id,
+            "旧项目文档",
+            "https://old-docs.example.com",
+            "已迁移的旧文档站",
+            [],
+            "private",
+            False,
+            "dead",
+        ),
+        (
+            inbox_id,
+            "GitHub (重复导入)",
+            "https://github.com/?utm_source=old",
+            "重复导入的副本",
+            [],
+            "private",
+            False,
+            "ok",
+        ),
+    ]
+
+    for folder_id, title, url, desc, tags, vis, fav, link_status in items:
+        await create_bookmark(
+            db,
+            user_id,
+            {
+                "folder_id": folder_id,
+                "title": title,
+                "url": url,
+                "description": desc,
+                "tags": tags,
+                "visibility": vis,
+                "is_favorite": fav,
+                "link_status": link_status,
+            },
+        )
+
+    db.add(
+        Setting(
+            user_id=user_id,
+            key="demo_seeded",
+            value="1",
+            is_secret=False,
+        )
+    )
+    await db.flush()
 
 
 async def get_inbox_folder_id(db: AsyncSession, user_id: str) -> str:

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.visibility import effective_visibility, is_public_nav_visible
-from app.models import Bookmark, Folder
+from app.models import Bookmark, BookmarkTag, Folder, Tag
 
 
 async def _ancestor_visibilities(
@@ -76,6 +76,21 @@ async def public_nav_tree(db: AsyncSession, user_id: str) -> dict:
         }
         children_map.setdefault(f.parent_id, []).append(node)
 
+    # Batch-load tags for public bookmarks
+    bm_ids = [b.id for b in bookmarks]
+    tags_by_bm: dict[str, list[str]] = {bid: [] for bid in bm_ids}
+    if bm_ids:
+        for i in range(0, len(bm_ids), 400):
+            chunk = bm_ids[i : i + 400]
+            q = (
+                select(BookmarkTag.bookmark_id, Tag.name)
+                .join(Tag, Tag.id == BookmarkTag.tag_id)
+                .where(BookmarkTag.bookmark_id.in_(chunk))
+                .order_by(Tag.name)
+            )
+            for bid, name in (await db.execute(q)).all():
+                tags_by_bm.setdefault(bid, []).append(name)
+
     bm_by_folder: dict[str, list] = {}
     for b in bookmarks:
         ancestors = await _ancestor_visibilities(by_id, b.folder_id)
@@ -98,6 +113,8 @@ async def public_nav_tree(db: AsyncSession, user_id: str) -> dict:
                 "description": b.description,
                 "visibility": b.visibility,
                 "sort_order": b.sort_order,
+                "tags": tags_by_bm.get(b.id, []),
+                "is_favorite": b.is_favorite,
             }
         )
 
@@ -142,6 +159,19 @@ async def home_nav(db: AsyncSession, user_id: str) -> dict:
         .scalars()
         .all()
     )
+    bm_ids = [b.id for b in bookmarks]
+    tags_by_bm: dict[str, list[str]] = {bid: [] for bid in bm_ids}
+    if bm_ids:
+        for i in range(0, len(bm_ids), 400):
+            chunk = bm_ids[i : i + 400]
+            q = (
+                select(BookmarkTag.bookmark_id, Tag.name)
+                .join(Tag, Tag.id == BookmarkTag.tag_id)
+                .where(BookmarkTag.bookmark_id.in_(chunk))
+                .order_by(Tag.name)
+            )
+            for bid, name in (await db.execute(q)).all():
+                tags_by_bm.setdefault(bid, []).append(name)
     return {
         "folders": [
             {
@@ -165,6 +195,8 @@ async def home_nav(db: AsyncSession, user_id: str) -> dict:
                 "is_favorite": b.is_favorite,
                 "is_archived": b.is_archived,
                 "sort_order": b.sort_order,
+                "tags": tags_by_bm.get(b.id, []),
+                "link_status": b.link_status,
             }
             for b in bookmarks
         ],

@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     # Allow insecure defaults only for automated tests
     allow_insecure_defaults: bool = False
 
+    # Seed prototype demo folders/bookmarks on first empty bootstrap
+    seed_demo_data: bool = True
+
 
 def _is_strong_secret(value: str, *, min_len: int = 16) -> bool:
     return bool(value) and len(value) >= min_len
