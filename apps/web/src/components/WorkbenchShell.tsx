@@ -35,17 +35,12 @@ export function WorkbenchShell() {
   const { logout } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
-  const [navOpen, setNavOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
     initThemeFromStorage();
     setTheme(currentTheme());
   }, []);
-
-  useEffect(() => {
-    setNavOpen(false);
-  }, [loc.pathname]);
 
   const allNav = [...MAIN_NAV, ...ADMIN_NAV];
 
@@ -62,7 +57,6 @@ export function WorkbenchShell() {
             to={it.path}
             end={it.end}
             className={({ isActive }) => (isActive ? "active" : undefined)}
-            onClick={() => setNavOpen(false)}
           >
             <span className="nav-ico">{it.icon}</span>
             {t(it.labelKey as any)}
@@ -74,26 +68,27 @@ export function WorkbenchShell() {
 
   return (
     <div className="layout-shell">
+      {/* Prototype narrow: sticky top bar + horizontal nav chips */}
       <header className="mobile-nav-bar">
         <div className="mobile-nav-top">
           <LogoMark size={24} />
           <strong style={{ fontSize: 14 }}>{t("appName")}</strong>
-          <div className="row spacer" style={{ gap: 6 }}>
-            <button type="button" className="btn btn-sm" onClick={onToggleTheme}>
+          <div className="mobile-nav-actions">
+            <button type="button" className="btn topbar-btn" onClick={onToggleTheme} aria-label="Theme">
               {theme === "dark" ? "☀" : "☾"}
             </button>
-            <button type="button" className="btn btn-sm" onClick={toggleLang}>
+            <button type="button" className="btn topbar-btn" onClick={toggleLang} aria-label="Language">
               {lang === "zh" ? "EN" : "中"}
             </button>
-            <button type="button" className="btn btn-sm" onClick={() => nav("/")}>
+            <button type="button" className="btn topbar-btn" onClick={() => nav("/")} aria-label={t("viewSite")}>
               ↗
             </button>
-            <button type="button" className="btn btn-sm" onClick={logout}>
+            <button type="button" className="btn topbar-btn" onClick={logout} aria-label={t("logout")}>
               ⎋
             </button>
           </div>
         </div>
-        <div className="mobile-nav-scroll">
+        <nav className="mobile-nav-scroll" aria-label="Main">
           {allNav.map((it) => {
             const active = it.end
               ? loc.pathname === it.path
@@ -109,19 +104,10 @@ export function WorkbenchShell() {
               </button>
             );
           })}
-        </div>
+        </nav>
       </header>
 
-      {navOpen ? (
-        <button
-          type="button"
-          className="nav-backdrop"
-          aria-label="Close menu"
-          onClick={() => setNavOpen(false)}
-        />
-      ) : null}
-
-      <aside className={`sidebar ${navOpen ? "open" : ""}`}>
+      <aside className="sidebar">
         <div className="sidebar-brand">
           <LogoMark size={26} />
           <span>{t("appName")}</span>

@@ -156,7 +156,7 @@ export function AdminBackup() {
       {err ? <div className="error" style={{ marginBottom: 12 }}>{err}</div> : null}
 
       {tab === "file" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="split-2">
           <div className="card stack">
             <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t("export")}</div>
             <div className="muted-sm">书签树 + 文件夹 + 标签 · 兼容 LiteMark JSON</div>
@@ -258,7 +258,7 @@ export function AdminBackup() {
             Enabled
           </label>
           <input className="input input-mono" placeholder="endpoint" value={s3.endpoint || ""} onChange={(e) => setS3({ ...s3, endpoint: e.target.value })} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="split-2" style={{ gap: 12 }}>
             <input className="input input-mono" placeholder="region (auto)" value={s3.region || ""} onChange={(e) => setS3({ ...s3, region: e.target.value })} />
             <input className="input input-mono" placeholder="bucket" value={s3.bucket || ""} onChange={(e) => setS3({ ...s3, bucket: e.target.value })} />
             <input className="input input-mono" placeholder="key_prefix" value={s3.key_prefix || ""} onChange={(e) => setS3({ ...s3, key_prefix: e.target.value })} />

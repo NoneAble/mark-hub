@@ -345,25 +345,65 @@ export function Dashboard() {
         </button>
       </aside>
 
+      {/* Mobile: horizontal folder chips (prototype narrow layout) */}
+      <div
+        className="scroll-chips dashboard-tree-mobile"
+        role="navigation"
+        aria-label={t("folders")}
+        data-testid="folder-tree-mobile"
+      >
+        {pinnedIds
+          .map((id) => folders.find((f) => f.id === id))
+          .filter(Boolean)
+          .map((f) => (
+            <button
+              key={`pin-${f!.id}`}
+              type="button"
+              className={`chip${selected === f!.id ? " active" : ""}`}
+              onClick={() => setSelected(f!.id)}
+            >
+              📌 {f!.name}
+            </button>
+          ))}
+        {treeNodes.map((n) => (
+          <button
+            key={String(n.id)}
+            type="button"
+            className={`chip${selected === n.id ? " active" : ""}`}
+            data-testid={
+              typeof n.id === "string" && n.id !== "all" && n.id !== "fav"
+                ? `folder-node-m-${n.id}`
+                : undefined
+            }
+            onClick={() => setSelected(n.id)}
+          >
+            {n.name}
+            <span className="chip-count">{n.count}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="dashboard-main">
-        <div className="row" style={{ gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+        <div className="dashboard-toolbar" style={{ marginBottom: 18 }}>
           <SearchField
             value={q}
             onChange={setQ}
             placeholder={t("searchPh")}
-            style={{ flex: 1, maxWidth: 380 }}
+            className="dashboard-search"
             testId="dashboard-search"
           />
-          <span className="muted-sm">
+          <span className="muted-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}>
             {shown.length} {lang === "zh" ? "项" : "items"}
             {collectionBoard ? ` · ${collectionBoard}` : ""}
           </span>
-          <button type="button" className="btn btn-soft btn-sm spacer" onClick={() => void shareFolder()}>
-            ⇗ {t("share")}
-          </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={openAdd}>
-            + {t("addBm")}
-          </button>
+          <div className="dashboard-toolbar-actions">
+            <button type="button" className="btn btn-soft topbar-btn" onClick={() => void shareFolder()}>
+              ⇗ {t("share")}
+            </button>
+            <button type="button" className="btn btn-primary topbar-btn" onClick={openAdd}>
+              + {t("addBm")}
+            </button>
+          </div>
         </div>
 
         {shown.length ? (

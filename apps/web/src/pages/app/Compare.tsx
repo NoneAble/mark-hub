@@ -115,12 +115,12 @@ export function ComparePage() {
     <div>
       <PageHeader title={t("compare")} sub={t("compareSub")} />
 
-      <div className="row" style={{ gap: 10, marginBottom: 14, maxWidth: 640 }}>
+      <div className="row compare-toolbar" style={{ gap: 10, marginBottom: 14, maxWidth: 640 }}>
         <SearchField
           value={q}
           onChange={setQ}
           placeholder={t("cmpPh")}
-          style={{ flex: 1 }}
+          style={{ flex: 1, minWidth: 0 }}
         />
         <button type="button" className="btn btn-primary" onClick={doSearch}>
           {t("searchBtn")}
@@ -130,7 +130,7 @@ export function ComparePage() {
         </button>
       </div>
 
-      <div className="row" style={{ gap: 8, marginBottom: 18 }}>
+      <div className="row" style={{ gap: 8, marginBottom: 18, overflowX: "auto", flexWrap: "nowrap", paddingBottom: 2 }}>
         {allEngines.map((e) => (
           <Chip key={e.id} active={active.includes(e.id)} onClick={() => toggleEngine(e.id)}>
             {lang === "zh" && e.nameZh ? e.nameZh : e.name}
@@ -138,14 +138,7 @@ export function ComparePage() {
         ))}
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-          gap: 14,
-          marginBottom: 24,
-        }}
-      >
+      <div className="compare-engine-grid" style={{ marginBottom: 24 }}>
         {engines.map((e) => {
           const query = searched || q;
           const url = query ? buildSearchUrl(e.template, query) : "";
@@ -192,17 +185,17 @@ export function ComparePage() {
 
       <div className="card stack" style={{ maxWidth: 560 }}>
         <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t("customEngines")}</div>
-        <form className="row" onSubmit={(e) => void addCustom(e)}>
+        <form className="row wrap" onSubmit={(e) => void addCustom(e)}>
           <input
             className="input"
-            style={{ flex: 1 }}
+            style={{ flex: "1 1 140px", minWidth: 0 }}
             placeholder={t("engineName")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
           />
           <input
             className="input input-mono"
-            style={{ flex: 2 }}
+            style={{ flex: "2 1 180px", minWidth: 0 }}
             placeholder={t("engineTemplate")}
             value={newTemplate}
             onChange={(e) => setNewTemplate(e.target.value)}

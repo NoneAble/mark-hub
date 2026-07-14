@@ -312,12 +312,8 @@ export function BoardsPage() {
           </div>
 
           <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
-              gap: 13,
-              marginBottom: 24,
-            }}
+            className="grid-cards"
+            style={{ marginBottom: 24 }}
             data-testid="annotations-table"
           >
             {shown.map((a) => {

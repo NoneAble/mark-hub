@@ -66,7 +66,7 @@ export function BookmarkCard({
       <div className="bm-meta">
         <TagList tags={bm.tags} />
         {editMode || onFav || onEdit || onQr || onDelete ? (
-          <div className="bm-actions" style={editMode ? { opacity: 1 } : undefined}>
+          <div className={`bm-actions${editMode ? " always" : ""}`}>
             {onFav ? (
               <button
                 type="button"

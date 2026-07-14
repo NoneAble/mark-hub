@@ -99,7 +99,7 @@ export function DiscoverPage() {
       <PageHeader title={t("discover")} sub={t("discoverHint")} />
       {loading ? <div className="muted" style={{ marginBottom: 12 }}>{t("loading")}</div> : null}
 
-      <div className="discover-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="discover-grid">
         {trend ? (
           <WidgetPanel
             title="GitHub Trending"

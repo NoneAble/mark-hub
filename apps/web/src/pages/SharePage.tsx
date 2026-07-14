@@ -44,18 +44,20 @@ export function SharePage() {
   }, [token]);
 
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div className="public-page">
       <header className="public-topbar">
-        <div className="row" style={{ gap: 9 }}>
+        <div className="public-brand">
           <LogoMark size={28} />
           <strong style={{ fontSize: 16 }}>{t("appName")}</strong>
           <span className="badge">{t("shares")}</span>
         </div>
-        <Link to="/" className="btn btn-sm spacer">
-          {t("publicNav")}
-        </Link>
+        <div className="public-actions">
+          <Link to="/" className="btn topbar-btn">
+            {t("publicNav")}
+          </Link>
+        </div>
       </header>
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 20px 60px" }}>
+      <div className="public-content" style={{ maxWidth: 900, margin: "0 auto", width: "100%" }}>
         <PageHeader title={data?.folder?.name || data?.bookmark?.title || t("shares")} />
         {needsPassword ? (
           <div className="card stack" style={{ maxWidth: 360 }}>

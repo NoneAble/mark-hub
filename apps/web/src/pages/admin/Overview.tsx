@@ -65,7 +65,7 @@ export function AdminOverview() {
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="split-2">
         <div className="card">
           <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 12 }}>{t("recent30")}</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 110 }}>

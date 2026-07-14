@@ -204,7 +204,7 @@ export function PublicHome() {
   return (
     <div className="public-page">
       <header className="public-topbar">
-        <div className="row" style={{ gap: 9, flex: "none" }}>
+        <div className="public-brand">
           <LogoMark size={28} />
           <strong style={{ fontSize: 16 }}>{t("appName")}</strong>
         </div>
@@ -213,13 +213,13 @@ export function PublicHome() {
           onChange={setQ}
           placeholder={t("searchPh")}
           filled
-          style={{ flex: 1, maxWidth: 420 }}
+          className="public-search"
         />
-        <div className="row spacer" style={{ gap: 10 }}>
+        <div className="public-actions">
           {token && editMode ? (
             <button
               type="button"
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary topbar-btn"
               onClick={() => {
                 setDraft({ title: "", url: "", description: "" });
                 setAdding(true);
@@ -231,7 +231,7 @@ export function PublicHome() {
           {token ? (
             <button
               type="button"
-              className="btn btn-soft btn-sm"
+              className="btn btn-soft topbar-btn"
               onClick={() => setEditMode((v) => !v)}
             >
               {editMode ? t("exitEdit") : t("editMode")}
@@ -239,29 +239,54 @@ export function PublicHome() {
           ) : null}
           <button
             type="button"
-            className="btn btn-sm"
+            className="btn topbar-btn"
             onClick={toggleLang}
           >
-            {lang === "zh" ? "EN" : "中文"}
+            {lang === "zh" ? "EN" : "中"}
           </button>
           <button
             type="button"
-            className="btn btn-sm"
+            className="btn topbar-btn"
             onClick={() => setTheme(toggleTheme())}
           >
             {theme === "dark" ? "☀" : "☾"}
           </button>
           {token ? (
-            <Link className="btn btn-primary btn-sm" to="/app">
+            <Link className="btn btn-primary topbar-btn" to="/app">
               {t("workbench")}
             </Link>
           ) : (
-            <Link className="btn btn-primary btn-sm" to="/admin/login">
+            <Link className="btn btn-primary topbar-btn" to="/admin/login">
               {t("login")}
             </Link>
           )}
         </div>
       </header>
+
+      {/* Mobile: horizontal folder chips (prototype narrow layout) */}
+      <div className="scroll-chips public-folder-chips" role="navigation" aria-label={t("folders")}>
+        {folderNav.map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            className={`chip${selected === n.id ? " active" : ""}`}
+            onClick={() => setSelected(n.id)}
+          >
+            {n.name}
+            <span className="chip-count">{n.count}</span>
+          </button>
+        ))}
+        {allTags.slice(0, 6).map((tg) => (
+          <button
+            key={`tag-${tg}`}
+            type="button"
+            className="chip"
+            onClick={() => setQ(tg)}
+          >
+            #{tg}
+          </button>
+        ))}
+      </div>
 
       <div className="public-body">
         <aside className="public-aside">

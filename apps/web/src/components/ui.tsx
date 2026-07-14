@@ -38,6 +38,7 @@ export function SearchField({
   placeholder,
   filled,
   style,
+  className,
   testId,
 }: {
   value: string;
@@ -45,10 +46,14 @@ export function SearchField({
   placeholder?: string;
   filled?: boolean;
   style?: React.CSSProperties;
+  className?: string;
   testId?: string;
 }) {
   return (
-    <div className={`search-field${filled ? " filled" : ""}`} style={style}>
+    <div
+      className={`search-field${filled ? " filled" : ""}${className ? ` ${className}` : ""}`}
+      style={style}
+    >
       <span className="search-icon" aria-hidden>
         ⌕
       </span>
@@ -226,7 +231,7 @@ export function DomainBar({ host, n, max }: { host: string; n: number; max: numb
   const op = max > 0 ? 0.35 + (n / max) * 0.65 : 0.4;
   return (
     <div className="domain-bar-row">
-      <span className="mono" style={{ width: 180, flex: "none", color: "var(--text2)" }}>
+      <span className="mono domain-bar-host" title={host}>
         {host}
       </span>
       <div className="domain-bar-track">
