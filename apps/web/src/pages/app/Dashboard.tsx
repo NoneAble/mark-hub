@@ -7,7 +7,9 @@ import {
   EmptyState,
   Modal,
   SearchField,
+  SearchModal,
   Toast,
+  useSearchHotkey,
   useToast,
 } from "../../components/ui";
 import { visIcon } from "../../lib/colors";
@@ -52,6 +54,7 @@ export function Dashboard() {
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [selected, setSelected] = useState<string | "all" | "fav">("all");
   const [q, setQ] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [density, setDensity] = useState("comfortable");
   const [rootFolderId, setRootFolderId] = useState<string | null>(null);
@@ -150,6 +153,22 @@ export function Dashboard() {
     }
     return out;
   }, [folders, bookmarks, counts, rootFolderId, t]);
+
+  const searchItems = useMemo(
+    () =>
+      bookmarks
+        .filter((b) => !b.is_archived)
+        .map((b) => ({
+          id: b.id,
+          title: b.title,
+          url: b.url,
+          description: b.description,
+          tags: b.tags,
+        })),
+    [bookmarks],
+  );
+
+  useSearchHotkey(() => setSearchOpen(true));
 
   const shown = useMemo(() => {
     return bookmarks.filter((b) => {
@@ -391,6 +410,8 @@ export function Dashboard() {
             placeholder={t("searchPh")}
             className="dashboard-search"
             testId="dashboard-search"
+            shortcutHint
+            onActivate={() => setSearchOpen(true)}
           />
           <span className="muted-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}>
             {shown.length} {lang === "zh" ? "项" : "items"}
@@ -463,6 +484,16 @@ export function Dashboard() {
           {formFields}
         </form>
       </Modal>
+
+      <SearchModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        items={searchItems}
+        initialQuery={q}
+        placeholder={t("searchPh")}
+        emptyLabel={t("searchNoResults")}
+        openLabel={t("searchOpen")}
+      />
 
       <QrCodeModal url={qrUrl || ""} open={!!qrUrl} onClose={() => setQrUrl(null)} />
       <Toast message={toast} />

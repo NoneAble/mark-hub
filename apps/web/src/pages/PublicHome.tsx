@@ -3,7 +3,15 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../i18n";
 import { BookmarkCard } from "../components/BookmarkCard";
-import { LogoMark, Modal, SearchField, Toast, useToast } from "../components/ui";
+import {
+  LogoMark,
+  Modal,
+  SearchField,
+  SearchModal,
+  Toast,
+  useSearchHotkey,
+  useToast,
+} from "../components/ui";
 import { currentTheme, initThemeFromStorage, toggleTheme } from "../lib/theme";
 
 type NavNode = {
@@ -70,6 +78,7 @@ export function PublicHome() {
   const [tree, setTree] = useState<NavNode[]>([]);
   const [editMode, setEditMode] = useState(false);
   const [q, setQ] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<string | "all">("all");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [editing, setEditing] = useState<NavNode | null>(null);
@@ -89,6 +98,20 @@ export function PublicHome() {
 
   const folders = useMemo(() => tree.filter((n) => n.type === "folder"), [tree]);
   const allTags = useMemo(() => collectTags(tree), [tree]);
+
+  const searchItems = useMemo(
+    () =>
+      flattenBookmarks({ type: "folder", id: "__root", children: tree }).map((n) => ({
+        id: n.id,
+        title: n.title || "",
+        url: n.url || "",
+        description: n.description,
+        tags: n.tags,
+      })),
+    [tree],
+  );
+
+  useSearchHotkey(() => setSearchOpen(true));
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -214,6 +237,8 @@ export function PublicHome() {
           placeholder={t("searchPh")}
           filled
           className="public-search"
+          shortcutHint
+          onActivate={() => setSearchOpen(true)}
         />
         <div className="public-actions">
           {token && editMode ? (
@@ -281,7 +306,10 @@ export function PublicHome() {
             key={`tag-${tg}`}
             type="button"
             className="chip"
-            onClick={() => setQ(tg)}
+            onClick={() => {
+              setQ(tg);
+              setSearchOpen(true);
+            }}
           >
             #{tg}
           </button>
@@ -325,7 +353,10 @@ export function PublicHome() {
                     type="button"
                     className="tag-chip"
                     style={{ cursor: "pointer", border: "none" }}
-                    onClick={() => setQ(tg)}
+                    onClick={() => {
+                      setQ(tg);
+                      setSearchOpen(true);
+                    }}
                   >
                     #{tg}
                   </button>
@@ -375,6 +406,16 @@ export function PublicHome() {
       <footer className="foot-note">
         MarkHub · {t("footNote")}
       </footer>
+
+      <SearchModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        items={searchItems}
+        initialQuery={q}
+        placeholder={t("searchPh")}
+        emptyLabel={t("searchNoResults")}
+        openLabel={t("searchOpen")}
+      />
 
       <Modal
         open={!!editing}
