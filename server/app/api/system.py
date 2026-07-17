@@ -9,10 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings, validate_security_settings
 from app.database import get_db
 from app.domain import changes as changes_svc
-from app.domain import discover as discover_svc
 from app.models import User
 from app.security.auth import get_current_user
-from app.utils.errors import api_error
 
 router = APIRouter(tags=["system"])
 
@@ -75,16 +73,6 @@ async def version():
     }
 
 
-@router.get("/version/latest")
-async def version_latest():
-    settings = get_settings()
-    return {
-        "latest": settings.version,
-        "current": settings.version,
-        "update_available": False,
-    }
-
-
 @router.get("/changes")
 async def changes(
     since: int = Query(0),
@@ -93,17 +81,3 @@ async def changes(
     db: AsyncSession = Depends(get_db),
 ):
     return await changes_svc.list_changes(db, user.id, since=since, limit=limit)
-
-
-@router.get("/discover/widgets")
-async def discover_widgets(
-    ids: str = Query(""),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    settings = get_settings()
-    if not settings.ff_discover:
-        raise api_error("feature_disabled", "Discover is disabled", 503)
-    wanted = [x.strip() for x in ids.split(",") if x.strip()] or None
-    widgets = await discover_svc.fetch_widgets(db, user.id, wanted)
-    return {"widgets": widgets}

@@ -10,10 +10,8 @@ from app.models import Setting
 from app.security.crypto import decrypt_secret, encrypt_secret
 
 SECRET_KEYS = {
-    "ai_api_key",
     "webdav_password",
     "s3_secret_access_key",
-    "mcp_token_hash",
 }
 
 

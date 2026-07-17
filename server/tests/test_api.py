@@ -160,66 +160,6 @@ async def test_import_export_json(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_cleaner_and_boards(client: AsyncClient, auth_headers):
-    h = auth_headers
-    # two duplicates
-    await client.post(
-        "/api/v1/bookmarks",
-        headers=h,
-        json={"title": "D1", "url": "https://dup.example/x"},
-    )
-    await client.post(
-        "/api/v1/bookmarks",
-        headers=h,
-        json={"title": "D2", "url": "https://dup.example/x?utm_source=1"},
-    )
-    r = await client.post(
-        "/api/v1/clean/jobs",
-        headers=h,
-        json={"check_invalid": False},
-    )
-    assert r.status_code == 200
-    assert r.json()["issue_count"] >= 1
-    kinds = {i["kind"] for i in r.json()["issues"]}
-    assert "duplicate" in kinds
-
-    r = await client.get("/api/v1/analytics/profile", headers=h)
-    assert r.json()["total_bookmarks"] >= 2
-
-    # board scan
-    folders = (await client.get("/api/v1/folders", headers=h)).json()["items"]
-    inbox = next(f for f in folders if f["is_system"])
-    r = await client.post(
-        "/api/v1/boards",
-        headers=h,
-        json={
-            "name": "Channels",
-            "type": "ai_channels",
-            "source_folder_ids": [inbox["id"]],
-        },
-    )
-    board = r.json()
-    r = await client.post(
-        f"/api/v1/boards/{board['id']}/scan",
-        headers=h,
-        json={"mode": "full"},
-    )
-    assert r.status_code == 200
-    assert r.json()["mode"] == "full"
-
-    r = await client.post(
-        f"/api/v1/boards/{board['id']}/scan",
-        headers=h,
-        json={"mode": "incremental"},
-    )
-    assert r.status_code == 200
-    assert r.json()["mode"] in ("incremental", "full")
-
-    r = await client.get(f"/api/v1/boards/{board['id']}/annotations", headers=h)
-    assert "items" in r.json()
-
-
-@pytest.mark.asyncio
 async def test_s3_config_masking(client: AsyncClient, auth_headers):
     h = auth_headers
     r = await client.put(
@@ -242,13 +182,3 @@ async def test_s3_config_masking(client: AsyncClient, auth_headers):
     assert body["secret_set"] is True
     assert "secret_access_key" not in body or body.get("secret_access_key") in (None, "")
     assert body["key_prefix"].endswith("/")
-
-
-@pytest.mark.asyncio
-async def test_ssrf_blocked(client: AsyncClient, auth_headers):
-    r = await client.post(
-        "/api/v1/ai/fetch-page-info",
-        headers=auth_headers,
-        json={"url": "http://127.0.0.1/admin"},
-    )
-    assert r.status_code == 400

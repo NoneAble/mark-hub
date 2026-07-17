@@ -411,30 +411,6 @@ export function TagList({ tags }: { tags?: Array<string | { name: string }> | nu
   );
 }
 
-export function StatCard({
-  label,
-  value,
-  delta,
-  deltaColor,
-}: {
-  label: string;
-  value: React.ReactNode;
-  delta?: string;
-  deltaColor?: string;
-}) {
-  return (
-    <div className="stat-card">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
-      {delta ? (
-        <div className="stat-delta" style={deltaColor ? { color: deltaColor } : undefined}>
-          {delta}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function PageHeader({
   title,
   sub,
@@ -457,27 +433,6 @@ export function PageHeader({
 
 export function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="empty-state">{children}</div>;
-}
-
-export function Switch({
-  on,
-  onChange,
-  label,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  label?: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={`switch${on ? " on" : ""}`}
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-    />
-  );
 }
 
 export function Modal({
@@ -535,41 +490,3 @@ export function useToast(ms = 2200) {
   return { toast: msg, showToast: setMsg } as const;
 }
 
-export function Chip({
-  active,
-  onClick,
-  children,
-  count,
-}: {
-  active?: boolean;
-  onClick?: () => void;
-  children: React.ReactNode;
-  count?: number | string;
-}) {
-  return (
-    <button type="button" className={`chip${active ? " active" : ""}`} onClick={onClick}>
-      {children}
-      {count !== undefined ? <span className="chip-count">{count}</span> : null}
-    </button>
-  );
-}
-
-export function DomainBar({ host, n, max }: { host: string; n: number; max: number }) {
-  const pct = max > 0 ? Math.max(6, Math.round((n / max) * 100)) : 0;
-  const op = max > 0 ? 0.35 + (n / max) * 0.65 : 0.4;
-  return (
-    <div className="domain-bar-row">
-      <span className="mono domain-bar-host" title={host}>
-        {host}
-      </span>
-      <div className="domain-bar-track">
-        <div className="domain-bar-fill" style={{ width: `${pct}%`, opacity: op }} />
-      </div>
-      <span style={{ fontSize: 11.5, color: "var(--text3)", width: 24, textAlign: "right" }}>{n}</span>
-    </div>
-  );
-}
-
-export function Spinner() {
-  return <div className="spinner" aria-hidden />;
-}

@@ -17,7 +17,6 @@ python-dotenv>=1.0.1
 apscheduler>=3.10.4
 boto3>=1.35.86
 webdavclient3>=3.14.6
-openai>=1.58.1
 pytest>=8.3.4
 pytest-asyncio>=0.25.0
 anyio>=4.7.0

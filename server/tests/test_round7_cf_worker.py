@@ -436,16 +436,3 @@ def test_worker_cron_is_15_minutes():
 
     toml = (Path(__file__).resolve().parents[2] / "apps/worker/wrangler.toml").read_text()
     assert 'crons = ["*/15 * * * *"]' in toml
-
-
-def test_ai_tasks_migration_checked_in():
-    """RQG-CF-MIGRATION-001: ai_tasks must live in ordered D1 migrations."""
-    from pathlib import Path
-
-    mig = Path(__file__).resolve().parents[2] / "apps/worker/migrations/0004_ai_tasks.sql"
-    assert mig.is_file()
-    text = mig.read_text()
-    assert "CREATE TABLE IF NOT EXISTS ai_tasks" in text
-    # Runtime DDL helper must not recreate the table
-    index = (Path(__file__).resolve().parents[2] / "apps/worker/src/index.ts").read_text()
-    assert "CREATE TABLE IF NOT EXISTS ai_tasks" not in index

@@ -146,61 +146,6 @@ async function main() {
     `status=${bad.status} ${bad.text.slice(0, 120)}`,
   );
 
-  // cleaner persist
-  r = await req("POST", "/api/v1/bookmarks", {
-    token,
-    body: { title: "Dup1", url: "https://dup.example/x", folder_id: targetFolder },
-  });
-  const d1 = r.json?.id;
-  r = await req("POST", "/api/v1/bookmarks", {
-    token,
-    body: { title: "Dup2", url: "https://dup.example/x", folder_id: targetFolder },
-  });
-  const d2 = r.json?.id;
-  r = await req("POST", "/api/v1/clean/jobs", { token, body: { check_invalid: false } });
-  assert("cleaner_post", r.status === 200 && r.json?.id, r.text.slice(0, 200));
-  const jobId = r.json?.id;
-  const issueCount = r.json?.issue_count ?? 0;
-  assert("cleaner_has_issues", issueCount >= 1, `issue_count=${issueCount}`);
-  r = await req("GET", `/api/v1/clean/jobs/${jobId}`, { token });
-  assert(
-    "cleaner_get_persist",
-    r.status === 200 && (r.json?.issue_count ?? 0) >= 1,
-    `issue_count=${r.json?.issue_count}`,
-  );
-  const issueId = r.json?.issues?.[0]?.id;
-  if (issueId) {
-    r = await req("POST", "/api/v1/clean/apply", {
-      token,
-      body: { issue_ids: [issueId] },
-    });
-    assert("cleaner_apply", r.status === 200 && (r.json?.applied ?? 0) >= 1, r.text.slice(0, 200));
-  } else {
-    assert("cleaner_apply", false, "no issue id");
-  }
-
-  // AI: no key → configuration error (not synthetic success)
-  r = await req("POST", "/api/v1/ai/classify", {
-    token,
-    body: { title: "t", url: "https://example.com" },
-  });
-  assert(
-    "ai_classify_no_key",
-    r.status === 400 && r.json?.error?.code === "ai_not_configured",
-    `status=${r.status} ${r.text.slice(0, 160)}`,
-  );
-
-  // SSRF
-  r = await req("POST", "/api/v1/ai/fetch-page-info", {
-    token,
-    body: { url: "http://127.0.0.1/" },
-  });
-  assert(
-    "ai_fetch_ssrf",
-    r.status === 400 && (r.json?.error?.code === "ssrf" || /ssrf|blocked/i.test(r.text)),
-    r.text.slice(0, 160),
-  );
-
   // CSV import (unique URL per run)
   const stamp = Date.now();
   r = await req("POST", "/api/v1/backup/import", {
@@ -224,56 +169,7 @@ async function main() {
   });
   assert("import_html", r.status === 200 && (r.json?.created ?? 0) >= 1, r.text.slice(0, 200));
 
-  // boards CRUD + annotation batch + export html
-  r = await req("POST", "/api/v1/boards", {
-    token,
-    body: { name: "Contract Board", type: "ai_channels", source_folder_ids: [targetFolder] },
-  });
-  assert("board_create", r.status === 200 && r.json?.id, r.text.slice(0, 200));
-  const boardId = r.json?.id;
-  r = await req("GET", `/api/v1/boards/${boardId}`, { token });
-  assert("board_get", r.status === 200 && r.json?.id === boardId, r.text.slice(0, 160));
-  r = await req("PATCH", `/api/v1/boards/${boardId}`, {
-    token,
-    body: { name: "Contract Board Renamed" },
-  });
-  assert("board_patch", r.status === 200 && r.json?.name?.includes("Renamed"), r.text.slice(0, 160));
-  r = await req("POST", `/api/v1/boards/${boardId}/scan`, { token, body: { mode: "full" } });
-  assert("board_scan", r.status === 200, r.text.slice(0, 200));
-  r = await req("GET", `/api/v1/boards/${boardId}/annotations`, { token });
-  assert("board_annotations", r.status === 200 && Array.isArray(r.json?.items), r.text.slice(0, 160));
-  const aid = r.json?.items?.[0]?.id;
-  if (aid) {
-    r = await req("POST", `/api/v1/boards/${boardId}/annotations/batch`, {
-      token,
-      body: { items: [{ annotation_id: aid, patch: { status: "active", note: "ok" } }] },
-    });
-    assert("board_ann_batch", r.status === 200 && (r.json?.updated ?? 0) >= 1, r.text.slice(0, 160));
-  } else {
-    assert("board_ann_batch", true, "no annotations yet (ok if empty folder)");
-  }
-  r = await req("POST", `/api/v1/boards/${boardId}/groups`, {
-    token,
-    body: { name: "G1", keywords: ["ai"] },
-  });
-  assert("board_group", r.status === 200 && r.json?.id, r.text.slice(0, 160));
-  const gid = r.json?.id;
-  r = await req("POST", `/api/v1/boards/${boardId}/groups/reorder`, {
-    token,
-    body: { ordered_ids: [gid] },
-  });
-  assert("board_group_reorder", r.status === 200, r.text.slice(0, 160));
-  r = await req("POST", `/api/v1/boards/${boardId}/export`, {
-    token,
-    body: { format: "html" },
-  });
-  assert(
-    "board_export_html",
-    r.status === 200 && /html/i.test(r.text),
-    `status=${r.status} len=${r.text.length}`,
-  );
-
-  // shares payload — use a dedicated live bookmark (cleaner may soft-delete earlier ids)
+  // shares payload — use a dedicated live bookmark
   r = await req("POST", "/api/v1/bookmarks", {
     token,
     body: {
@@ -314,33 +210,6 @@ async function main() {
     r.status === 400 || r.status === 200,
     `status=${r.status} ${r.text.slice(0, 120)}`,
   );
-
-  // MCP real write
-  r = await req("POST", "/api/v1/settings/mcp/token", { token });
-  assert("mcp_token", r.status === 200 && r.json?.token, r.text.slice(0, 160));
-  const mcpToken = r.json?.token;
-  const before = await req("GET", "/api/v1/bookmarks", { token });
-  const beforeCount = before.json?.items?.length ?? before.json?.total ?? 0;
-  r = await req("POST", "/api/v1/mcp", {
-    headers: { Authorization: `Bearer ${mcpToken}` },
-    body: {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "add_markhub_bookmark",
-        arguments: { title: "MCP Add", url: "https://mcp.example/add" },
-      },
-    },
-  });
-  assert(
-    "mcp_add",
-    r.status === 200 && r.json?.result && !r.json?.result?.isError,
-    r.text.slice(0, 240),
-  );
-  const after = await req("GET", "/api/v1/bookmarks", { token });
-  const afterCount = after.json?.items?.length ?? after.json?.total ?? 0;
-  assert("mcp_add_persisted", afterCount > beforeCount, `before=${beforeCount} after=${afterCount}`);
 
   // metrics — shared OpenAPI field requests_total (RQG-CONTRACT-001)
   r = await req("GET", "/api/v1/metrics");
@@ -386,40 +255,6 @@ async function main() {
   assert(
     "bookmark_batch_invalid_folder",
     r.status === 400 || r.status === 404 || r.status === 422,
-    `status=${r.status} ${r.text.slice(0, 160)}`,
-  );
-
-  // Annotation booleans before destructive restore (RQG-CONTRACT-001)
-  r = await req("POST", "/api/v1/boards", {
-    token,
-    body: {
-      name: `BoolBoard-${stamp}`,
-      type: "ai_channels",
-      source_folder_ids: [targetFolder],
-    },
-  });
-  const boolBoard = r.json?.id;
-  if (boolBoard) {
-    await req("POST", `/api/v1/boards/${boolBoard}/scan`, { token, body: { mode: "full" } });
-    r = await req("GET", `/api/v1/boards/${boolBoard}/annotations`, { token });
-    const items = r.json?.items || [];
-    assert(
-      "annotation_present_boolean",
-      items.length === 0 || items.every((a) => typeof a.present === "boolean"),
-      JSON.stringify(items[0] || {}).slice(0, 200),
-    );
-  } else {
-    assert("annotation_present_boolean", false, "board create failed");
-  }
-
-  // AI batch uses migrated ai_tasks table (RQG-CF-MIGRATION-001)
-  r = await req("POST", "/api/v1/ai/batch", {
-    token,
-    body: { bookmark_ids: [bmId], actions: ["summarize"] },
-  });
-  assert(
-    "ai_batch_no_ddl_500",
-    r.status === 200 || r.status === 400 || r.status === 501,
     `status=${r.status} ${r.text.slice(0, 160)}`,
   );
 

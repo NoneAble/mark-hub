@@ -15,26 +15,19 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import __version__
 from app.api import (
-    ai,
     auth,
     backup,
-    boards,
     bookmarks,
-    clean,
     folders,
     nav,
     shares,
     system,
     tags,
 )
-from app.api import (
-    settings as settings_api,
-)
 from app.config import assert_secure_or_exit, get_settings
 from app.database import async_session_maker, init_db
 from app.domain.bootstrap import bootstrap_admin_and_inbox
 from app.jobs.scheduler import init_scheduler, shutdown_scheduler
-from app.mcp.server import router as mcp_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("markhub")
@@ -171,13 +164,8 @@ app.include_router(bookmarks.router, prefix=API)
 app.include_router(folders.router, prefix=API)
 app.include_router(tags.router, prefix=API)
 app.include_router(nav.router, prefix=API)
-app.include_router(settings_api.router, prefix=API)
-app.include_router(ai.router, prefix=API)
 app.include_router(backup.router, prefix=API)
-app.include_router(clean.router, prefix=API)
-app.include_router(boards.router, prefix=API)
 app.include_router(shares.router, prefix=API)
-app.include_router(mcp_router, prefix=API)
 
 
 # Serve SPA if built assets are present (Docker / local static)

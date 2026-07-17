@@ -49,12 +49,3 @@ export function visIcon(visibility?: string | null): string {
   return "🔒";
 }
 
-export const STATUS_COLORS: Record<string, [string, string]> = {
-  active: ["#16a34a", "rgba(22,163,74,.12)"],
-  available: ["#16a34a", "rgba(22,163,74,.12)"],
-  limited: ["#d97706", "rgba(217,119,6,.12)"],
-  pending: ["#2563eb", "rgba(37,99,235,.12)"],
-  watching: ["#7c3aed", "rgba(124,58,237,.12)"],
-  dead: ["#dc2626", "rgba(220,38,38,.1)"],
-  blocked: ["#64748b", "rgba(100,116,139,.15)"],
-};

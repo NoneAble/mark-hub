@@ -9,28 +9,12 @@ export type FolderDeleteMode =
 
 export type ImportStrategy = "skip_duplicate" | "merge" | "replace_all";
 
-export type AnnotationStatus =
-  | "active"
-  | "limited"
-  | "pending"
-  | "watching"
-  | "dead"
-  | "blocked";
-
-export type RiskLevel = "low" | "medium" | "high" | "";
-export type PriceTag = "S" | "A" | "B" | "C" | "unrated" | "";
-
-export type BoardType = "ai_channels" | "reading_list" | "custom";
-
 export type LinkStatus = "unknown" | "ok" | "broken" | "redirect" | "blocked";
 
 export type OpEntityType =
   | "bookmark"
   | "folder"
   | "tag"
-  | "annotation"
-  | "board"
-  | "board_group"
   | "reorder"
   | "settings"
   | "share";
@@ -84,51 +68,6 @@ export interface Tag {
   color: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface Board {
-  id: string;
-  user_id: string;
-  name: string;
-  type: BoardType;
-  source_folder_ids: string[];
-  schema_version: number;
-  last_full_scan_at: string | null;
-  last_incremental_cursor: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface BoardGroup {
-  id: string;
-  board_id: string;
-  name: string;
-  color: string | null;
-  keywords: string[];
-  sort_order: number;
-  collapsed: boolean;
-}
-
-export interface Annotation {
-  id: string;
-  board_id: string;
-  bookmark_id: string;
-  status: AnnotationStatus;
-  risk: RiskLevel;
-  price_tag: PriceTag;
-  category: string | null;
-  group_id: string | null;
-  secondary_group_ids: string[];
-  note: string | null;
-  source_ref: string | null;
-  source_folder_id: string | null;
-  source_folder_path: string | null;
-  present: boolean;
-  first_seen_at: string;
-  last_seen_at: string;
-  missing_since: string | null;
-  annotation_updated_at: string;
-  fields: Record<string, unknown>;
 }
 
 export interface OpLogRow {

@@ -91,41 +91,6 @@ CREATE TABLE IF NOT EXISTS reorder_clocks (
   UNIQUE(user_id, scope, parent_id)
 );
 
-CREATE TABLE IF NOT EXISTS boards (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  type TEXT NOT NULL DEFAULT 'ai_channels',
-  source_folder_ids TEXT NOT NULL DEFAULT '[]',
-  schema_version INTEGER NOT NULL DEFAULT 1,
-  last_full_scan_at TEXT,
-  last_incremental_cursor INTEGER,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS annotations (
-  id TEXT PRIMARY KEY,
-  board_id TEXT NOT NULL,
-  bookmark_id TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  risk TEXT NOT NULL DEFAULT '',
-  price_tag TEXT NOT NULL DEFAULT '',
-  category TEXT,
-  group_id TEXT,
-  secondary_group_ids TEXT NOT NULL DEFAULT '[]',
-  note TEXT,
-  source_ref TEXT,
-  source_folder_id TEXT,
-  source_folder_path TEXT,
-  present INTEGER NOT NULL DEFAULT 1,
-  first_seen_at TEXT NOT NULL,
-  last_seen_at TEXT NOT NULL,
-  missing_since TEXT,
-  annotation_updated_at TEXT NOT NULL,
-  fields TEXT NOT NULL DEFAULT '{}'
-);
-
 CREATE TABLE IF NOT EXISTS share_links (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -135,16 +100,6 @@ CREATE TABLE IF NOT EXISTS share_links (
   password_hash TEXT,
   expires_at TEXT,
   created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS board_groups (
-  id TEXT PRIMARY KEY,
-  board_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  color TEXT,
-  keywords TEXT NOT NULL DEFAULT '[]',
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  collapsed INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS tags_fts_stub (

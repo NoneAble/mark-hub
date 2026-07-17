@@ -48,19 +48,10 @@ class Settings(BaseSettings):
     default_admin_password: str = ""
     force_admin_password_change: bool = True
 
-    mcp_enabled: bool = False
-
     # Feature flags
-    ff_mcp: bool = True
     ff_webdav: bool = True
     ff_s3_backup: bool = True
-    ff_ai_batch: bool = True
-    ff_cleaner_network: bool = True
     ff_public_nav: bool = True
-    ff_boards: bool = True
-    ff_board_incremental: bool = True
-    ff_discover: bool = True
-    ff_compare: bool = True
 
     # Allow insecure defaults only for automated tests
     allow_insecure_defaults: bool = False

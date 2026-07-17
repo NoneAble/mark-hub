@@ -111,68 +111,6 @@ class BookmarkTag(Base):
     tag_id: Mapped[str] = mapped_column(String(36), ForeignKey("tags.id"), index=True)
 
 
-class Board(Base):
-    __tablename__ = "boards"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    type: Mapped[str] = mapped_column(String(32), default="ai_channels")
-    source_folder_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON array
-    schema_version: Mapped[int] = mapped_column(Integer, default=1)
-    last_full_scan_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_incremental_cursor: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
-    )
-
-
-class BoardGroup(Base):
-    __tablename__ = "board_groups"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    board_id: Mapped[str] = mapped_column(String(36), ForeignKey("boards.id"), index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    color: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    keywords: Mapped[str] = mapped_column(Text, default="[]")  # JSON
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    collapsed: Mapped[bool] = mapped_column(Boolean, default=False)
-
-
-class Annotation(Base):
-    __tablename__ = "annotations"
-    __table_args__ = (
-        Index("ix_annotations_board_bookmark", "board_id", "bookmark_id"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    board_id: Mapped[str] = mapped_column(String(36), ForeignKey("boards.id"), index=True)
-    bookmark_id: Mapped[str] = mapped_column(String(36), ForeignKey("bookmarks.id"), index=True)
-    status: Mapped[str] = mapped_column(String(32), default="pending")
-    risk: Mapped[str] = mapped_column(String(16), default="")
-    price_tag: Mapped[str] = mapped_column(String(16), default="")
-    category: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    group_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("board_groups.id"), nullable=True
-    )
-    secondary_group_ids: Mapped[str] = mapped_column(Text, default="[]")
-    note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    source_folder_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("folders.id"), nullable=True
-    )
-    source_folder_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    present: Mapped[bool] = mapped_column(Boolean, default=True)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    missing_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    annotation_updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
-    )
-    fields: Mapped[str] = mapped_column(Text, default="{}")  # JSON
-
-
 class Setting(Base):
     __tablename__ = "settings"
     __table_args__ = (UniqueConstraint("user_id", "key", name="uq_setting_user_key"),)
@@ -212,34 +150,6 @@ class ReorderClock(Base):
     )
 
 
-class CleanJob(Base):
-    __tablename__ = "clean_jobs"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    status: Mapped[str] = mapped_column(String(32), default="pending")  # pending|running|done|failed
-    check_invalid: Mapped[bool] = mapped_column(Boolean, default=False)
-    concurrency: Mapped[int] = mapped_column(Integer, default=8)
-    progress: Mapped[float] = mapped_column(Float, default=0.0)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-
-class CleanIssue(Base):
-    __tablename__ = "clean_issues"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("clean_jobs.id"), index=True)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(32), nullable=False)  # invalid|duplicate|empty-folder|broken-url
-    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    entity_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    detail: Mapped[str] = mapped_column(Text, default="")
-    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-
 class ShareLink(Base):
     __tablename__ = "share_links"
 
@@ -262,17 +172,3 @@ class RateLimit(Base):
     window_start: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-
-class AiTask(Base):
-    __tablename__ = "ai_tasks"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(32), default="batch")
-    status: Mapped[str] = mapped_column(String(32), default="pending")
-    progress: Mapped[float] = mapped_column(Float, default=0.0)
-    payload: Mapped[str] = mapped_column(Text, default="{}")
-    result: Mapped[str] = mapped_column(Text, default="{}")
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

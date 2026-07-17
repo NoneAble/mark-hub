@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from html import escape
-
 import pytest
 from app.api import system as system_api
 from app.main import app
@@ -94,28 +92,6 @@ async def test_batch_top_level_alias_still_works(client: AsyncClient, auth_heade
     assert r.status_code == 200, r.text
     got = (await client.get(f"/api/v1/bookmarks/{bm['id']}", headers=h)).json()
     assert got["folder_id"] == f2["id"]
-
-
-@pytest.mark.asyncio
-async def test_board_html_export_escapes_xss(client: AsyncClient, auth_headers):
-    """R4-F005: board HTML export must escape script payloads."""
-    h = auth_headers
-    board = (
-        await client.post(
-            "/api/v1/boards",
-            headers=h,
-            json={"name": '<script>alert(1)</script>', "type": "ai_channels"},
-        )
-    ).json()
-    r = await client.post(
-        f"/api/v1/boards/{board['id']}/export",
-        headers=h,
-        json={"format": "html"},
-    )
-    assert r.status_code == 200, r.text
-    text = r.text
-    assert "<script>" not in text
-    assert escape("<script>alert(1)</script>") in text or "&lt;script&gt;" in text
 
 
 @pytest.mark.asyncio

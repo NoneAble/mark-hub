@@ -196,7 +196,6 @@ async def _fts_search_ids(
     return None
 
 
-
 async def sync_bookmark_fts(db: AsyncSession, bookmark: Bookmark, tags: list[str] | None = None) -> None:
     """Keep FTS index in sync with bookmark writes (F-019)."""
     from sqlalchemy import text
@@ -250,7 +249,6 @@ async def sync_bookmark_fts(db: AsyncSession, bookmark: Bookmark, tags: list[str
     except Exception:
         # FTS is best-effort; LIKE fallback remains
         pass
-
 
 
 async def get_bookmark(db: AsyncSession, user_id: str, bookmark_id: str) -> Bookmark:
@@ -325,7 +323,6 @@ async def create_bookmark(
         tags = await _set_tags(db, user_id, b.id, list(data["tags"]))
     await sync_bookmark_fts(db, b, [t.name for t in tags])
     await write_op(db, user_id, "bookmark", b.id, "create", bookmark_dict(b))
-    await _schedule_board_scans(db, user_id)
     return bookmark_dict(b, tags)
 
 
@@ -364,7 +361,6 @@ async def update_bookmark(
         tags = await _set_tags(db, user_id, b.id, list(patch["tags"]))
     await sync_bookmark_fts(db, b, [t.name for t in tags])
     await write_op(db, user_id, "bookmark", b.id, "update", bookmark_dict(b))
-    await _schedule_board_scans(db, user_id)
     return bookmark_dict(b, tags)
 
 
@@ -376,7 +372,6 @@ async def delete_bookmark(db: AsyncSession, user_id: str, bookmark_id: str) -> d
     await db.flush()
     await sync_bookmark_fts(db, b)
     await write_op(db, user_id, "bookmark", b.id, "soft_delete", bookmark_dict(b))
-    await _schedule_board_scans(db, user_id)
     return {"ok": True, "id": bookmark_id}
 
 
@@ -462,35 +457,3 @@ async def batch_bookmarks(
     return {"ok": True, "count": len(results), "affected": len(results), "results": results}
 
 
-async def _schedule_board_scans(db: AsyncSession, user_id: str) -> None:
-    """Debounced post-write incremental board scans (F020).
-
-    Enqueues a short background job so REST write latency stays low.
-    """
-    try:
-        from app.domain import boards as board_svc
-        from app.jobs.runner import enqueue
-        from app.models import Board
-
-        boards = list(
-            (await db.execute(select(Board).where(Board.user_id == user_id))).scalars().all()
-        )
-        if not boards:
-            return
-        board_ids = [b.id for b in boards]
-
-        async def _run() -> None:
-            from app.database import async_session_maker
-
-            async with async_session_maker() as session:
-                for bid in board_ids:
-                    try:
-                        await board_svc.scan_board(session, user_id, bid, mode="incremental")
-                    except Exception:
-                        pass
-                await session.commit()
-
-        enqueue(_run())
-    except Exception:
-        # Best-effort; periodic scheduler remains the safety net
-        pass

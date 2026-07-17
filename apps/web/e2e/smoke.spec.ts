@@ -46,7 +46,7 @@ async function ensureLoggedIn(page: Page) {
 }
 
 test.describe("MarkHub material flows", () => {
-  test("release acceptance journey @release", async ({ page, request }) => {
+  test("release acceptance journey @release", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("body")).toContainText(/MarkHub/);
     await expect(page.getByRole("link", { name: /login|登录/i })).toBeVisible();
@@ -82,25 +82,6 @@ test.describe("MarkHub material flows", () => {
 
     await page.goto("/app");
     await expect(page.getByTestId("bookmark-cards")).toContainText(title);
-
-    const token = await page.evaluate(() => localStorage.getItem("markhub_token"));
-    expect(token).toBeTruthy();
-    const folderName = `Cleaner fixture ${stamp}`;
-    const folderResponse = await request.post("/api/v1/folders", {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { name: folderName, visibility: "private" },
-    });
-    expect(folderResponse.ok()).toBeTruthy();
-
-    await page.goto("/app/cleaner");
-    await page.getByRole("button", { name: /^scan$|扫描/i }).click();
-    const issueRow = page.locator("tbody tr", { hasText: folderName });
-    await expect(issueRow).toBeVisible({ timeout: 15_000 });
-    await issueRow.locator('input[type="checkbox"]').check();
-    const applyButton = page.getByRole("button", { name: /soft-delete selected|应用/i });
-    await expect(applyButton).toBeEnabled();
-    await applyButton.click();
-    await expect(page.locator(".success")).toContainText(/Applied soft-delete to 1 item/i);
   });
 
   test("public navigation loads", async ({ page }) => {
@@ -153,27 +134,6 @@ test.describe("MarkHub material flows", () => {
     await expect(page.locator("body")).toContainText(/Imported|created|skipped/i, { timeout: 15_000 });
   });
 
-  test("AI admin shows classify/batch controls", async ({ page }) => {
-    await ensureLoggedIn(page);
-    await page.goto("/admin/ai");
-    await expect(page.getByTestId("ai-classify")).toBeVisible();
-    await expect(page.getByTestId("ai-batch-summarize")).toBeVisible();
-    await expect(page.getByTestId("ai-quick-url")).toBeVisible();
-  });
-
-  test("boards workbench has scan, groups, export controls", async ({ page }) => {
-    await ensureLoggedIn(page);
-    await page.goto("/app/boards");
-    await expect(page.getByTestId("board-create-form")).toBeVisible();
-    // create a board
-    await page.locator('input').first().fill(`Board E2E ${Date.now()}`);
-    await page.getByRole("button", { name: /create|创建|新建/i }).first().click();
-    await page.waitForTimeout(500);
-    await expect(page.getByTestId("scan-full")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("export-json")).toBeVisible();
-    await expect(page.getByTestId("group-name")).toBeVisible();
-  });
-
   test("dashboard QR opens dialog when bookmarks exist", async ({ page }) => {
     await ensureLoggedIn(page);
     // ensure a bookmark
@@ -195,29 +155,14 @@ test.describe("MarkHub material flows", () => {
     await expect(page.locator("body")).toContainText(/QR|qr|scan|关闭|close|MarkHub/i);
   });
 
-  test("cleaner scan button works", async ({ page }) => {
-    await ensureLoggedIn(page);
-    await page.goto("/app/cleaner");
-    const scan = page.getByRole("button", { name: /scan|扫描/i });
-    await expect(scan).toBeVisible();
-    await scan.click();
-    await page.waitForTimeout(500);
-    await expect(page.locator("body")).toBeVisible();
-  });
-
   test("material routes render non-empty shells", async ({ page }) => {
     await ensureLoggedIn(page);
     for (const path of [
       "/app",
-      "/app/cleaner",
-      "/app/boards",
-      "/app/compare",
-      "/app/discover",
-      "/app/settings",
       "/admin/backup",
       "/admin/tags",
       "/admin/folders",
-      "/admin/ai",
+      "/admin/bookmarks",
     ]) {
       await page.goto(path);
       await expect(page.locator("body")).toBeVisible();

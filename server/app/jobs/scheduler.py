@@ -1,4 +1,4 @@
-"""APScheduler for WebDAV/S3 backups and board incremental scans."""
+"""APScheduler for WebDAV/S3 backups and soft-delete GC."""
 
 from __future__ import annotations
 
@@ -19,9 +19,6 @@ def _local_hhmm() -> str:
     return datetime.now(BACKUP_TZ).strftime("%H:%M")
 
 
-def _local_minute() -> int:
-    return datetime.now(BACKUP_TZ).minute
-
 
 async def _run_soft_delete_gc() -> dict:
     """Permanently purge soft-deleted bookmarks/folders older than 30 days (F005)."""
@@ -30,7 +27,7 @@ async def _run_soft_delete_gc() -> dict:
     from sqlalchemy import delete, select
 
     from app.database import async_session_maker
-    from app.models import Annotation, Bookmark, BookmarkTag, Folder
+    from app.models import Bookmark, BookmarkTag, Folder
     from app.utils.timeutil import server_now
 
     cutoff = server_now() - timedelta(days=30)
@@ -51,7 +48,6 @@ async def _run_soft_delete_gc() -> dict:
         )
         for b in stale_bms:
             await db.execute(delete(BookmarkTag).where(BookmarkTag.bookmark_id == b.id))
-            await db.execute(delete(Annotation).where(Annotation.bookmark_id == b.id))
             await db.delete(b)
             bm_count += 1
         stale_fds = list(
@@ -94,13 +90,11 @@ async def _run_scheduled_backups() -> None:
     from sqlalchemy import select
 
     from app.database import async_session_maker
-    from app.domain import boards as board_svc
     from app.domain import remote_backup as remote
     from app.domain.settings_svc import get_json_setting
-    from app.models import Board, User
+    from app.models import User
 
     hhmm = _local_hhmm()
-    minute = _local_minute()
     # Daily GC around 03:15 Asia/Shanghai
     if hhmm == "03:15":
         try:
@@ -124,16 +118,6 @@ async def _run_scheduled_backups() -> None:
                     logger.info("WebDAV backup done for user %s", u.id)
             except Exception as e:
                 logger.warning("WebDAV backup failed: %s", e)
-            # board incremental every 15 min when minute % 15 == 0 (Asia/Shanghai)
-            if minute % 15 == 0:
-                boards = (
-                    (await db.execute(select(Board).where(Board.user_id == u.id))).scalars().all()
-                )
-                for b in boards:
-                    try:
-                        await board_svc.scan_board(db, u.id, b.id, mode="incremental")
-                    except Exception as e:
-                        logger.warning("board scan failed: %s", e)
         await db.commit()
 
 

@@ -9,25 +9,14 @@ type NavItem = { path: string; labelKey: string; icon: string; end?: boolean };
 
 const MAIN_NAV: NavItem[] = [
   { path: "/app", labelKey: "workbench", icon: "⌂", end: true },
-  { path: "/app/cleaner", labelKey: "cleaner", icon: "◎" },
-  { path: "/app/compare", labelKey: "compare", icon: "⇔" },
-  { path: "/app/ai", labelKey: "ai", icon: "✦" },
-  { path: "/app/boards", labelKey: "boards", icon: "▦" },
-  { path: "/app/discover", labelKey: "discover", icon: "◈" },
-  { path: "/app/settings", labelKey: "settings", icon: "⚙" },
 ];
 
 const ADMIN_NAV: NavItem[] = [
-  { path: "/admin", labelKey: "overview", icon: "▣", end: true },
   { path: "/admin/bookmarks", labelKey: "bookmarks", icon: "★" },
   { path: "/admin/folders", labelKey: "folders", icon: "⊞" },
   { path: "/admin/tags", labelKey: "tags", icon: "#" },
   { path: "/admin/backup", labelKey: "backup", icon: "⇓" },
-  { path: "/admin/ai", labelKey: "ai", icon: "✦" },
-  { path: "/admin/mcp", labelKey: "mcp", icon: "🔌" },
-  { path: "/admin/settings", labelKey: "settings", icon: "⚙" },
   { path: "/admin/account", labelKey: "account", icon: "☺" },
-  { path: "/admin/about", labelKey: "about", icon: "ⓘ" },
 ];
 
 export function WorkbenchShell() {

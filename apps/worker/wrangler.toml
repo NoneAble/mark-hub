@@ -22,7 +22,7 @@ DEFAULT_ADMIN_USERNAME = "admin"
 # MARKHUB_MASTER_KEY
 # DEFAULT_ADMIN_PASSWORD
 
-# Every 15 minutes: board incremental scans + HH:mm backup window matching (RQG-CF-SCHEDULE-001)
+# Every 15 minutes: HH:mm backup window matching (RQG-CF-SCHEDULE-001)
 [triggers]
 crons = ["*/15 * * * *"]
 

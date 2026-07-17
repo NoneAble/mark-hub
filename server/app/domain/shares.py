@@ -87,7 +87,7 @@ async def create_share(
     password: str | None = None,
     expires_at: datetime | None = None,
 ) -> dict:
-    if target_type not in ("folder", "bookmark", "board"):
+    if target_type not in ("folder", "bookmark"):
         raise api_error("validation", "invalid target_type")
     expires_norm = _as_naive_utc(expires_at)
     token = secrets.token_urlsafe(16)

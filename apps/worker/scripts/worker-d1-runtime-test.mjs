@@ -645,82 +645,6 @@ async function testAtomicFailures(stateDir, restoreContent) {
   }
 }
 
-async function testMcpOriginParity(stateDir) {
-  const worker = await startWorker(stateDir, "mcp-origins");
-  try {
-    const token = await login(worker);
-    const generated = await request(worker, "POST", "/api/v1/settings/mcp/token", { token });
-    assert.equal(generated.status, 200, generated.text);
-    const staticToken = generated.json.token;
-    const configured = await request(worker, "PUT", "/api/v1/settings/mcp", {
-      token,
-      body: { enabled: true, allowed_origins: "https://allowed.example" },
-    });
-    assert.equal(configured.status, 200, configured.text);
-
-    const oauth = await request(worker, "POST", "/api/v1/oauth/token", {
-      body: {
-        grant_type: "client_credentials",
-        client_id: "markhub-mcp",
-        client_secret: staticToken,
-      },
-    });
-    assert.equal(oauth.status, 200, oauth.text);
-    const credentials = [
-      ["static", staticToken],
-      ["oauth", oauth.json.access_token],
-    ];
-    for (const [kind, bearer] of credentials) {
-      const missing = await request(worker, "GET", "/api/v1/mcp", {
-        token: bearer,
-      });
-      assert.equal(missing.status, 200, `${kind} missing Origin: ${missing.text}`);
-      const forbidden = await request(worker, "GET", "/api/v1/mcp", {
-        token: bearer,
-        headers: { Origin: "https://forbidden.example" },
-      });
-      assert.equal(forbidden.status, 403, `${kind}: ${forbidden.text}`);
-      assert.equal(forbidden.json?.error?.code, "forbidden_origin", kind);
-      const allowed = await request(worker, "GET", "/api/v1/mcp", {
-        token: bearer,
-        headers: { Origin: "https://allowed.example" },
-      });
-      assert.equal(allowed.status, 200, `${kind}: ${allowed.text}`);
-
-      const before = await request(worker, "GET", "/api/v1/bookmarks", { token });
-      assert.equal(before.status, 200, before.text);
-      const beforeCount = before.json.items.length;
-      const forbiddenWrite = await request(worker, "POST", "/api/v1/mcp", {
-        token: bearer,
-        headers: { Origin: "https://forbidden.example" },
-        body: {
-          jsonrpc: "2.0",
-          id: `${kind}-forbidden-write`,
-          method: "tools/call",
-          params: {
-            name: "add_markhub_bookmark",
-            arguments: {
-              title: `${kind} forbidden Origin write`,
-              url: `https://${kind}-forbidden-origin.example/item`,
-            },
-          },
-        },
-      });
-      assert.equal(forbiddenWrite.status, 403, `${kind}: ${forbiddenWrite.text}`);
-      assert.equal(forbiddenWrite.json?.error?.code, "forbidden_origin", kind);
-      const after = await request(worker, "GET", "/api/v1/bookmarks", { token });
-      assert.equal(after.status, 200, after.text);
-      assert.equal(
-        after.json.items.length,
-        beforeCount,
-        `${kind}: forbidden Origin MCP write mutated bookmarks`,
-      );
-    }
-  } finally {
-    await stopWorker(worker);
-  }
-}
-
 async function testExpiry(worker, token) {
   const bookmark = await request(worker, "POST", "/api/v1/bookmarks", {
     token,
@@ -1090,98 +1014,10 @@ async function seedAndTestCronGc(stateDir, configPath) {
   assert.deepEqual(fk, [], "cron GC left foreign-key violations");
 }
 
-async function testScheduledBoardIncremental(stateDir, configPath) {
-  let userId;
-  let folderId;
-  let boardId;
-  let initialCursor;
-  let worker = await startWorker(stateDir, "scheduled-board-setup");
-  try {
-    const token = await login(worker);
-    const folder = await request(worker, "POST", "/api/v1/folders", {
-      token,
-      body: { name: "Scheduled Board Source" },
-    });
-    assert.equal(folder.status, 200, folder.text);
-    folderId = folder.json.id;
-    const existing = await request(worker, "POST", "/api/v1/bookmarks", {
-      token,
-      body: {
-        title: "Scheduled Existing",
-        url: "https://scheduled.example/existing",
-        folder_id: folderId,
-      },
-    });
-    assert.equal(existing.status, 200, existing.text);
-    userId = existing.json.user_id;
-    const board = await request(worker, "POST", "/api/v1/boards", {
-      token,
-      body: { name: "Scheduled Board", source_folder_ids: [folderId] },
-    });
-    assert.equal(board.status, 200, board.text);
-    boardId = board.json.id;
-    const scanned = await request(worker, "POST", `/api/v1/boards/${boardId}/scan`, {
-      token,
-      body: { mode: "full" },
-    });
-    assert.equal(scanned.status, 200, scanned.text);
-    assert.equal(scanned.json.mode, "full", scanned.text);
-    initialCursor = Number(scanned.json.cursor);
-    assert.ok(initialCursor > 0, `initial board cursor=${initialCursor}`);
-  } finally {
-    await stopWorker(worker);
-  }
-
-  const seedPath = path.join(TEMP_ROOT, "scheduled-board-incremental.sql");
-  await fs.writeFile(
-    seedPath,
-    `INSERT INTO bookmarks
-       (id, user_id, folder_id, title, url, url_normalized, description, visibility,
-        is_favorite, is_archived, sort_order, link_status, created_at, updated_at)
-     VALUES
-       ('scheduled-new', '${userId}', '${folderId}', 'Scheduled New',
-        'https://scheduled.example/new', 'https://scheduled.example/new', NULL, 'private',
-        0, 0, 0, 'unknown', '2026-07-13T00:00:00.000Z', '2026-07-13T00:00:00.000Z');
-     INSERT INTO op_logs (user_id, entity_type, entity_id, action, snapshot, created_at)
-     VALUES ('${userId}', 'bookmark', 'scheduled-new', 'create',
-             '{"id":"scheduled-new"}', '2026-07-13T00:00:00.000Z');`,
-    "utf8",
-  );
-  await d1Execute(stateDir, configPath, seedPath, true);
-
-  worker = await startWorker(stateDir, "scheduled-board-trigger");
-  try {
-    const response = await request(worker, "GET", "/__scheduled");
-    assert.equal(response.status, 200, response.text);
-    const token = await login(worker);
-    const annotations = await request(
-      worker,
-      "GET",
-      `/api/v1/boards/${boardId}/annotations`,
-      { token },
-    );
-    assert.equal(annotations.status, 200, annotations.text);
-    const incremental = annotations.json.items.find(
-      (annotation) => annotation.bookmark_id === "scheduled-new",
-    );
-    assert.ok(incremental, "scheduled incremental scan did not create the annotation");
-    assert.equal(incremental.present, true, JSON.stringify(incremental));
-    assert.equal(incremental.source_folder_id, folderId, JSON.stringify(incremental));
-    const board = await request(worker, "GET", `/api/v1/boards/${boardId}`, { token });
-    assert.equal(board.status, 200, board.text);
-    assert.ok(
-      Number(board.json.last_incremental_cursor) > initialCursor,
-      `scheduled cursor did not advance: ${board.json.last_incremental_cursor} <= ${initialCursor}`,
-    );
-  } finally {
-    await stopWorker(worker);
-  }
-}
-
 async function testPopulatedMigration() {
   const partialMigrations = path.join(TEMP_ROOT, "migrations-before-fk");
   await fs.mkdir(partialMigrations, { recursive: true });
-  for (const name of ["0001_init.sql", "0002_cleaner.sql", "0003_rate_limits.sql", "0004_ai_tasks.sql"]) {
+  for (const name of ["0001_init.sql", "0003_rate_limits.sql"]) {
     await fs.copyFile(path.join(MIGRATIONS_DIR, name), path.join(partialMigrations, name));
   }
   const stateDir = path.join(TEMP_ROOT, "populated-upgrade");
@@ -1199,13 +1035,7 @@ async function testPopulatedMigration() {
      INSERT INTO settings (user_id,key,value,is_secret) VALUES ('pop-user','key','value',0);
      INSERT INTO op_logs (user_id,entity_type,entity_id,action,snapshot,created_at) VALUES ('pop-user','bookmark','pop-bookmark','create','{}','2026-01-01');
      INSERT INTO reorder_clocks (user_id,scope,parent_id,updated_at) VALUES ('pop-user','folder','','2026-01-01');
-     INSERT INTO boards VALUES ('pop-board','pop-user','Board','ai_channels','[]',1,NULL,NULL,'2026-01-01','2026-01-01');
-     INSERT INTO board_groups VALUES ('pop-group','pop-board','Group',NULL,'[]',0,0);
-     INSERT INTO annotations VALUES ('pop-ann','pop-board','pop-bookmark','pending','','',NULL,'pop-group','[]',NULL,NULL,'pop-child','Root/Child',1,'2026-01-01','2026-01-01',NULL,'2026-01-01','{}');
      INSERT INTO share_links VALUES ('pop-share','pop-user','pop-token','bookmark','pop-bookmark',NULL,NULL,'2026-01-01');
-     INSERT INTO clean_jobs VALUES ('pop-job','pop-user','done',0,1,1,NULL,'2026-01-01','2026-01-01');
-     INSERT INTO clean_issues VALUES ('pop-issue','pop-job','pop-user','duplicate','bookmark','pop-bookmark',NULL,'2026-01-01');
-     INSERT INTO ai_tasks VALUES ('pop-task','pop-user','batch','done',1,'{}','{}',NULL,'2026-01-01','2026-01-01');
 
      INSERT INTO folders VALUES ('orphan-parent','pop-user','missing-folder','Repair parent',4,'private',0,NULL,'2026-01-01','2026-01-01');
      INSERT INTO folders VALUES ('orphan-user-folder','missing-user',NULL,'Delete folder',5,'private',0,NULL,'2026-01-01','2026-01-01');
@@ -1217,15 +1047,8 @@ async function testPopulatedMigration() {
      INSERT INTO settings (user_id,key,value,is_secret) VALUES ('missing-user','delete-setting','value',0);
      INSERT INTO op_logs (user_id,entity_type,entity_id,action,snapshot,created_at) VALUES ('missing-user','bookmark','missing','create','{}','2026-01-01');
      INSERT INTO reorder_clocks (user_id,scope,parent_id,updated_at) VALUES ('missing-user','folder','','2026-01-01');
-     INSERT INTO boards VALUES ('orphan-user-board','missing-user','Delete board','custom','[]',1,NULL,NULL,'2026-01-01','2026-01-01');
-     INSERT INTO board_groups VALUES ('orphan-board-group','missing-board','Delete group',NULL,'[]',0,0);
-     INSERT INTO annotations VALUES ('repair-annotation','pop-board','pop-bookmark','pending','','',NULL,'missing-group','[]',NULL,NULL,'missing-folder','Missing',1,'2026-01-01','2026-01-01',NULL,'2026-01-01','{}');
-     INSERT INTO annotations VALUES ('orphan-annotation','missing-board','missing-bookmark','pending','','',NULL,NULL,'[]',NULL,NULL,NULL,NULL,1,'2026-01-01','2026-01-01',NULL,'2026-01-01','{}');
      INSERT INTO share_links VALUES ('orphan-user-share','missing-user','delete-token','bookmark','missing',NULL,NULL,'2026-01-01');
-     INSERT INTO clean_jobs VALUES ('orphan-user-job','missing-user','done',0,1,1,NULL,'2026-01-01','2026-01-01');
-     INSERT INTO clean_issues VALUES ('orphan-job-issue','missing-job','pop-user','duplicate','bookmark','missing',NULL,'2026-01-01');
-     INSERT INTO clean_issues VALUES ('orphan-user-issue','pop-job','missing-user','duplicate','bookmark','missing',NULL,'2026-01-01');
-     INSERT INTO ai_tasks VALUES ('orphan-user-task','missing-user','batch','done',1,'{}','{}',NULL,'2026-01-01','2026-01-01');`,
+`,
     "utf8",
   );
   await d1Execute(stateDir, beforeConfig, seedPath, true);
@@ -1243,9 +1066,7 @@ async function testPopulatedMigration() {
         `SELECT
            (SELECT COUNT(*) FROM folders) AS folders,
            (SELECT COUNT(*) FROM bookmarks) AS bookmarks,
-           (SELECT COUNT(*) FROM bookmark_tags) AS bookmark_tags,
-           (SELECT COUNT(*) FROM annotations) AS annotations,
-           (SELECT COUNT(*) FROM clean_issues) AS clean_issues`,
+           (SELECT COUNT(*) FROM bookmark_tags) AS bookmark_tags`,
       )
     ).stdout,
   )[0];
@@ -1253,8 +1074,6 @@ async function testPopulatedMigration() {
     folders: 3,
     bookmarks: 1,
     bookmark_tags: 1,
-    annotations: 2,
-    clean_issues: 1,
   });
   const repaired = d1Rows(
     (
@@ -1263,23 +1082,15 @@ async function testPopulatedMigration() {
         fullConfig,
         `SELECT
            (SELECT COUNT(*) FROM folders WHERE id = 'orphan-parent' AND parent_id IS NULL) AS repaired_parent,
-           (SELECT COUNT(*) FROM annotations WHERE id = 'repair-annotation' AND group_id IS NULL AND source_folder_id IS NULL) AS repaired_annotation,
            (SELECT COUNT(*) FROM folders WHERE id = 'orphan-user-folder') +
            (SELECT COUNT(*) FROM bookmarks WHERE id IN ('orphan-folder-bookmark','orphan-user-bookmark')) +
            (SELECT COUNT(*) FROM tags WHERE id = 'orphan-user-tag') +
-           (SELECT COUNT(*) FROM boards WHERE id = 'orphan-user-board') +
-           (SELECT COUNT(*) FROM board_groups WHERE id = 'orphan-board-group') +
-           (SELECT COUNT(*) FROM annotations WHERE id = 'orphan-annotation') +
-           (SELECT COUNT(*) FROM share_links WHERE id = 'orphan-user-share') +
-           (SELECT COUNT(*) FROM clean_jobs WHERE id = 'orphan-user-job') +
-           (SELECT COUNT(*) FROM clean_issues WHERE id IN ('orphan-job-issue','orphan-user-issue')) +
-           (SELECT COUNT(*) FROM ai_tasks WHERE id = 'orphan-user-task') AS remaining_orphans`,
+           (SELECT COUNT(*) FROM share_links WHERE id = 'orphan-user-share') AS remaining_orphans`,
       )
     ).stdout,
   )[0];
   assert.deepEqual(repaired, {
     repaired_parent: 1,
-    repaired_annotation: 1,
     remaining_orphans: 0,
   });
 }
@@ -1363,10 +1174,6 @@ async function main() {
     await stopWorker(contractWorker);
   }
 
-  phase("MCP Origin parity for static and OAuth access tokens");
-  const mcpOriginState = await cloneState(freshState, "mcp-origins");
-  await testMcpOriginParity(mcpOriginState);
-
   phase("KD-31 merge target-folder priority and oldest-live fallback");
   const kd31State = await cloneState(freshState, "kd31-merge");
   await testMergeDuplicateSelection(kd31State, freshConfig);
@@ -1429,10 +1236,6 @@ async function main() {
 
   phase("per-case destructive import rejection equality and valid-empty restore");
   await testMalformedImports(destinations.json);
-
-  phase("scheduled board incremental annotation and watermark advancement");
-  const scheduledBoardState = await cloneState(freshState, "scheduled-board");
-  await testScheduledBoardIncremental(scheduledBoardState, freshConfig);
 
   phase("scheduled child-first stale-folder GC");
   await seedAndTestCronGc(destinations.json, freshConfig);

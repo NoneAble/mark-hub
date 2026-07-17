@@ -1,6 +1,6 @@
 # MarkHub
 
-Self-hosted **Web** bookmark hub: public navigation, tree folders, cleaner, AI (server-side keys only), boards with full/incremental scan, MCP, WebDAV + **S3/R2** scheduled backups.
+Self-hosted **Web** bookmark hub: public navigation, tree folders, tags, sharing, WebDAV + **S3/R2** scheduled backups.
 
 **Delivery:** React SPA + REST API. Deploy with **Docker** (FastAPI + SQLite/Postgres) or **Cloudflare Workers + D1**. No browser extension.
 
@@ -9,7 +9,7 @@ Self-hosted **Web** bookmark hub: public navigation, tree folders, cleaner, AI (
 ```
 apps/web          React SPA (/  /admin  /app)
 apps/worker       Cloudflare Workers + D1
-packages/core     Shared pure logic (normalizeUrl, visibility, scan, …)
+packages/core     Shared pure logic (normalizeUrl, visibility, import parsing, …)
 packages/api-client
 packages/ui
 server            Python FastAPI (Docker)
@@ -151,7 +151,7 @@ pnpm exec wrangler d1 migrations apply markhub --local
 pnpm exec wrangler dev --local
 ```
 
-Cron: Worker uses `*/15 * * * *` so board incremental scans run every 15 minutes and configured `backup_time` (HH:mm) is honored within the matching 15-minute window.
+Cron: Worker uses `*/15 * * * *` so the configured `backup_time` (HH:mm) is honored within the matching 15-minute window.
 
 Worker implements the same `/api/v1` contract for core CRUD/nav/export; long jobs prefer Docker.
 

@@ -44,57 +44,6 @@ async def test_bookmark_list_includes_tags(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_board_scan_writes_annotation_ops(client: AsyncClient, auth_headers):
-    """F006: full scan and group reorder appear in /changes."""
-    h = auth_headers
-    folders = (await client.get("/api/v1/folders", headers=h)).json()["items"]
-    inbox = next(f for f in folders if f["is_system"])
-    await client.post(
-        "/api/v1/bookmarks",
-        headers=h,
-        json={"title": "ScanMe", "url": "https://scan-r6.example/", "folder_id": inbox["id"]},
-    )
-    board = (
-        await client.post(
-            "/api/v1/boards",
-            headers=h,
-            json={"name": "Scan Board", "type": "ai_channels", "source_folder_ids": [inbox["id"]]},
-        )
-    ).json()
-    scan = await client.post(
-        f"/api/v1/boards/{board['id']}/scan", headers=h, json={"mode": "full"}
-    )
-    assert scan.status_code == 200, scan.text
-    g1 = (
-        await client.post(
-            f"/api/v1/boards/{board['id']}/groups",
-            headers=h,
-            json={"name": "G1", "keywords": ["scan"]},
-        )
-    ).json()
-    g2 = (
-        await client.post(
-            f"/api/v1/boards/{board['id']}/groups",
-            headers=h,
-            json={"name": "G2", "keywords": []},
-        )
-    ).json()
-    re = await client.post(
-        f"/api/v1/boards/{board['id']}/groups/reorder",
-        headers=h,
-        json={"ordered_ids": [g2["id"], g1["id"]]},
-    )
-    assert re.status_code == 200, re.text
-    changes = (await client.get("/api/v1/changes?limit=200", headers=h)).json()
-    items = changes.get("items") or changes.get("changes") or changes
-    if isinstance(items, dict):
-        items = items.get("items") or []
-    actions = {(c.get("entity_type"), c.get("action")) for c in items}
-    assert "annotation" in {a[0] for a in actions}, f"expected annotation ops, got {actions}"
-    assert any(a[0] == "reorder" for a in actions), f"expected reorder op, got {actions}"
-
-
-@pytest.mark.asyncio
 async def test_soft_delete_gc_purges_old_rows(client: AsyncClient, auth_headers):
     """F005: GC removes bookmarks soft-deleted > 30 days ago."""
     h = auth_headers
@@ -173,49 +122,6 @@ async def test_export_json_includes_bookmark_tags(client: AsyncClient, auth_head
 
 
 @pytest.mark.asyncio
-async def test_mcp_call_system_folder_guard(client: AsyncClient, auth_headers):
-    """F004/F010: MCP call rejects reparenting system folder (Docker)."""
-    h = auth_headers
-    folders = (await client.get("/api/v1/folders", headers=h)).json()["items"]
-    inbox = next(f for f in folders if f["is_system"])
-    other = (
-        await client.post("/api/v1/folders", headers=h, json={"name": "NormalR6"})
-    ).json()
-    # JWT is accepted by /mcp/call auth (SPA parity)
-    r = await client.post(
-        "/api/v1/mcp/call",
-        headers=h,
-        json={
-            "name": "reorder_markhub_folders",
-            "arguments": {
-                "ordered_ids": [inbox["id"]],
-                "parent_id": other["id"],
-            },
-        },
-    )
-    # Domain service must refuse reparent of system folder
-    if r.status_code == 200:
-        folders2 = (await client.get("/api/v1/folders", headers=h)).json()["items"]
-        inbox2 = next(f for f in folders2 if f["id"] == inbox["id"])
-        assert inbox2.get("parent_id") != other["id"]
-    else:
-        assert r.status_code in (400, 403, 422)
-
-
-@pytest.mark.asyncio
-async def test_ai_quick_add_canonical_paths_exist(client: AsyncClient, auth_headers):
-    """F003 paths exist on FastAPI (Worker aligned separately)."""
-    h = auth_headers
-    for path in (
-        "/api/v1/ai/quick-add",
-        "/api/v1/ai/quick-add/with-title",
-        "/api/v1/ai/quick-add/with-category",
-    ):
-        r = await client.post(path, headers=h, json={"url": "https://qa-r6.example/"})
-        assert r.status_code != 404, f"{path} missing"
-
-
-@pytest.mark.asyncio
 async def test_search_batch_tags_perf_smoke(client: AsyncClient, auth_headers):
     """F015 smoke: listing many bookmarks does not explode (batch tags)."""
     h = auth_headers
@@ -238,32 +144,3 @@ async def test_search_batch_tags_perf_smoke(client: AsyncClient, auth_headers):
     assert elapsed_ms < 2000
     items = r.json()["items"]
     assert all("tags" in it for it in items)
-
-
-@pytest.mark.asyncio
-async def test_board_source_update_triggers_scan(client: AsyncClient, auth_headers):
-    """F020: changing board sources runs a scan (annotations appear)."""
-    h = auth_headers
-    folders = (await client.get("/api/v1/folders", headers=h)).json()["items"]
-    inbox = next(f for f in folders if f["is_system"])
-    await client.post(
-        "/api/v1/bookmarks",
-        headers=h,
-        json={"title": "Src", "url": "https://src-scan-r6.example/", "folder_id": inbox["id"]},
-    )
-    board = (
-        await client.post(
-            "/api/v1/boards",
-            headers=h,
-            json={"name": "Src Board", "type": "ai_channels", "source_folder_ids": []},
-        )
-    ).json()
-    await client.patch(
-        f"/api/v1/boards/{board['id']}",
-        headers=h,
-        json={"source_folder_ids": [inbox["id"]]},
-    )
-    anns = (
-        await client.get(f"/api/v1/boards/{board['id']}/annotations", headers=h)
-    ).json()["items"]
-    assert len(anns) >= 1

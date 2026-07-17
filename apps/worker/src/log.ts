@@ -23,9 +23,6 @@ export const metrics = {
   backup_webdav_fail: 0,
   backup_s3_ok: 0,
   backup_s3_fail: 0,
-  board_scan_ok: 0,
-  board_scan_fail: 0,
-  mcp_calls: 0,
 };
 
 /** Shared OpenAPI metrics shape: requests_total aliases in-process request counter. */

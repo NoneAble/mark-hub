@@ -81,65 +81,6 @@ CREATE TABLE IF NOT EXISTS bookmark_tags (
 CREATE INDEX IF NOT EXISTS ix_bookmark_tags_bookmark_id ON bookmark_tags (bookmark_id);
 CREATE INDEX IF NOT EXISTS ix_bookmark_tags_tag_id ON bookmark_tags (tag_id);
 
-CREATE TABLE IF NOT EXISTS boards (
-  id VARCHAR(36) NOT NULL,
-  user_id VARCHAR(36) NOT NULL,
-  name VARCHAR(255) NOT NULL,
-  type VARCHAR(32) NOT NULL DEFAULT 'ai_channels',
-  source_folder_ids TEXT NOT NULL DEFAULT '[]',
-  schema_version INTEGER NOT NULL DEFAULT 1,
-  last_full_scan_at DATETIME,
-  last_incremental_cursor INTEGER,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  PRIMARY KEY (id),
-  FOREIGN KEY(user_id) REFERENCES users (id)
-);
-CREATE INDEX IF NOT EXISTS ix_boards_user_id ON boards (user_id);
-
-CREATE TABLE IF NOT EXISTS board_groups (
-  id VARCHAR(36) NOT NULL,
-  board_id VARCHAR(36) NOT NULL,
-  name VARCHAR(255) NOT NULL,
-  color VARCHAR(32),
-  keywords TEXT NOT NULL DEFAULT '[]',
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  collapsed BOOLEAN NOT NULL DEFAULT 0,
-  PRIMARY KEY (id),
-  FOREIGN KEY(board_id) REFERENCES boards (id)
-);
-CREATE INDEX IF NOT EXISTS ix_board_groups_board_id ON board_groups (board_id);
-
-CREATE TABLE IF NOT EXISTS annotations (
-  id VARCHAR(36) NOT NULL,
-  board_id VARCHAR(36) NOT NULL,
-  bookmark_id VARCHAR(36) NOT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'pending',
-  risk VARCHAR(16) NOT NULL DEFAULT '',
-  price_tag VARCHAR(16) NOT NULL DEFAULT '',
-  category VARCHAR(255),
-  group_id VARCHAR(36),
-  secondary_group_ids TEXT NOT NULL DEFAULT '[]',
-  note TEXT,
-  source_ref VARCHAR(255),
-  source_folder_id VARCHAR(36),
-  source_folder_path TEXT,
-  present BOOLEAN NOT NULL DEFAULT 1,
-  first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  missing_since DATETIME,
-  annotation_updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  fields TEXT NOT NULL DEFAULT '{}',
-  PRIMARY KEY (id),
-  FOREIGN KEY(board_id) REFERENCES boards (id),
-  FOREIGN KEY(bookmark_id) REFERENCES bookmarks (id),
-  FOREIGN KEY(group_id) REFERENCES board_groups (id),
-  FOREIGN KEY(source_folder_id) REFERENCES folders (id)
-);
-CREATE INDEX IF NOT EXISTS ix_annotations_board_bookmark ON annotations (board_id, bookmark_id);
-CREATE INDEX IF NOT EXISTS ix_annotations_board_id ON annotations (board_id);
-CREATE INDEX IF NOT EXISTS ix_annotations_bookmark_id ON annotations (bookmark_id);
-
 CREATE TABLE IF NOT EXISTS settings (
   id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
   user_id VARCHAR(36) NOT NULL,
@@ -174,38 +115,6 @@ CREATE TABLE IF NOT EXISTS reorder_clocks (
 );
 CREATE INDEX IF NOT EXISTS ix_reorder_clocks_user_id ON reorder_clocks (user_id);
 
-CREATE TABLE IF NOT EXISTS clean_jobs (
-  id VARCHAR(36) NOT NULL,
-  user_id VARCHAR(36) NOT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'pending',
-  check_invalid BOOLEAN NOT NULL DEFAULT 0,
-  concurrency INTEGER NOT NULL DEFAULT 8,
-  progress FLOAT NOT NULL DEFAULT 0,
-  error TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  finished_at DATETIME,
-  PRIMARY KEY (id),
-  FOREIGN KEY(user_id) REFERENCES users (id)
-);
-CREATE INDEX IF NOT EXISTS ix_clean_jobs_user_id ON clean_jobs (user_id);
-
-CREATE TABLE IF NOT EXISTS clean_issues (
-  id VARCHAR(36) NOT NULL,
-  job_id VARCHAR(36) NOT NULL,
-  user_id VARCHAR(36) NOT NULL,
-  kind VARCHAR(32) NOT NULL,
-  entity_type VARCHAR(32) NOT NULL,
-  entity_id VARCHAR(36) NOT NULL,
-  detail TEXT NOT NULL DEFAULT '',
-  resolved BOOLEAN NOT NULL DEFAULT 0,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  PRIMARY KEY (id),
-  FOREIGN KEY(job_id) REFERENCES clean_jobs (id),
-  FOREIGN KEY(user_id) REFERENCES users (id)
-);
-CREATE INDEX IF NOT EXISTS ix_clean_issues_job_id ON clean_issues (job_id);
-CREATE INDEX IF NOT EXISTS ix_clean_issues_user_id ON clean_issues (user_id);
-
 CREATE TABLE IF NOT EXISTS share_links (
   id VARCHAR(36) NOT NULL,
   user_id VARCHAR(36) NOT NULL,
@@ -228,18 +137,3 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   PRIMARY KEY ("key")
 );
 
-CREATE TABLE IF NOT EXISTS ai_tasks (
-  id VARCHAR(36) NOT NULL,
-  user_id VARCHAR(36) NOT NULL,
-  kind VARCHAR(32) NOT NULL DEFAULT 'batch',
-  status VARCHAR(32) NOT NULL DEFAULT 'pending',
-  progress FLOAT NOT NULL DEFAULT 0,
-  payload TEXT NOT NULL DEFAULT '{}',
-  result TEXT NOT NULL DEFAULT '{}',
-  error TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  finished_at DATETIME,
-  PRIMARY KEY (id),
-  FOREIGN KEY(user_id) REFERENCES users (id)
-);
-CREATE INDEX IF NOT EXISTS ix_ai_tasks_user_id ON ai_tasks (user_id);

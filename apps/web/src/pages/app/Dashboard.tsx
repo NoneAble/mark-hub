@@ -14,19 +14,6 @@ import {
 } from "../../components/ui";
 import { visIcon } from "../../lib/colors";
 
-function asStringArray(v: unknown): string[] {
-  if (Array.isArray(v)) return v.map(String);
-  if (typeof v === "string" && v.trim()) {
-    try {
-      const parsed = JSON.parse(v);
-      if (Array.isArray(parsed)) return parsed.map(String);
-    } catch {
-      return v.split(",").map((s) => s.trim()).filter(Boolean);
-    }
-  }
-  return [];
-}
-
 type Folder = {
   id: string;
   parent_id: string | null;
@@ -56,10 +43,6 @@ export function Dashboard() {
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
-  const [density, setDensity] = useState("comfortable");
-  const [rootFolderId, setRootFolderId] = useState<string | null>(null);
-  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
-  const [collectionBoard, setCollectionBoard] = useState("");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Bookmark | null>(null);
   const [draft, setDraft] = useState({
@@ -78,23 +61,7 @@ export function Dashboard() {
   }
 
   useEffect(() => {
-    void (async () => {
-      await reload();
-      const settings = await api.get<any>("/settings").catch(() => ({}));
-      if (settings.card_density) {
-        setDensity(settings.card_density);
-        document.documentElement.dataset.density = settings.card_density;
-      }
-      if (settings.wallpaper) {
-        document.body.style.backgroundImage = `url(${settings.wallpaper})`;
-        document.body.style.backgroundSize = "cover";
-      }
-      const root = settings.root_folder_id || null;
-      setRootFolderId(root);
-      const pinned = asStringArray(settings.pinned_folder_ids);
-      setPinnedIds(pinned);
-      if (settings.collection_board_name) setCollectionBoard(String(settings.collection_board_name));
-    })();
+    void reload();
   }, [api]);
 
   const counts = useMemo(() => {
@@ -119,9 +86,6 @@ export function Dashboard() {
     ];
     function walk(parent: string | null, pad: number) {
       for (const f of byParent.get(parent) || []) {
-        if (rootFolderId && parent === null && f.id !== rootFolderId && !folders.some((x) => x.id === rootFolderId)) {
-          // still show all if root missing
-        }
         out.push({
           id: f.id,
           name: f.name,
@@ -133,26 +97,9 @@ export function Dashboard() {
         walk(f.id, pad + 14);
       }
     }
-    if (rootFolderId) {
-      const root = folders.find((f) => f.id === rootFolderId);
-      if (root) {
-        out.push({
-          id: root.id,
-          name: root.name,
-          icon: "📁",
-          pad: 0,
-          count: counts.get(root.id) || 0,
-          vis: root.visibility,
-        });
-        walk(root.id, 14);
-      } else {
-        walk(null, 0);
-      }
-    } else {
-      walk(null, 0);
-    }
+    walk(null, 0);
     return out;
-  }, [folders, bookmarks, counts, rootFolderId, t]);
+  }, [folders, bookmarks, counts, t]);
 
   const searchItems = useMemo(
     () =>
@@ -315,26 +262,8 @@ export function Dashboard() {
   );
 
   return (
-    <div className="dashboard-grid" data-density={density}>
+    <div className="dashboard-grid">
       <aside className="dashboard-tree" data-testid="folder-tree">
-        {pinnedIds.length ? (
-          <div style={{ marginBottom: 10, padding: "0 4px" }} data-testid="pinned-folders">
-            {pinnedIds
-              .map((id) => folders.find((f) => f.id === id))
-              .filter(Boolean)
-              .map((f) => (
-                <button
-                  key={f!.id}
-                  type="button"
-                  className={`folder-item${selected === f!.id ? " active" : ""}`}
-                  onClick={() => setSelected(f!.id)}
-                  style={{ marginBottom: 2 }}
-                >
-                  📌 {f!.name}
-                </button>
-              ))}
-          </div>
-        ) : null}
         <div className="stack" style={{ gap: 2 }}>
           {treeNodes.map((n) => (
             <button
@@ -371,19 +300,6 @@ export function Dashboard() {
         aria-label={t("folders")}
         data-testid="folder-tree-mobile"
       >
-        {pinnedIds
-          .map((id) => folders.find((f) => f.id === id))
-          .filter(Boolean)
-          .map((f) => (
-            <button
-              key={`pin-${f!.id}`}
-              type="button"
-              className={`chip${selected === f!.id ? " active" : ""}`}
-              onClick={() => setSelected(f!.id)}
-            >
-              📌 {f!.name}
-            </button>
-          ))}
         {treeNodes.map((n) => (
           <button
             key={String(n.id)}
@@ -415,7 +331,6 @@ export function Dashboard() {
           />
           <span className="muted-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}>
             {shown.length} {lang === "zh" ? "项" : "items"}
-            {collectionBoard ? ` · ${collectionBoard}` : ""}
           </span>
           <div className="dashboard-toolbar-actions">
             <button type="button" className="btn btn-soft topbar-btn" onClick={() => void shareFolder()}>

@@ -45,18 +45,6 @@ paths:
           content:
             application/json:
               schema: {}
-  /api/v1/version/latest:
-    get:
-      tags:
-      - system
-      summary: Version Latest
-      operationId: version_latest_api_v1_version_latest_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
   /api/v1/changes:
     get:
       tags:
@@ -81,34 +69,6 @@ paths:
           maximum: 1000
           default: 500
           title: Limit
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/discover/widgets:
-    get:
-      tags:
-      - system
-      summary: Discover Widgets
-      operationId: discover_widgets_api_v1_discover_widgets_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: ids
-        in: query
-        required: false
-        schema:
-          type: string
-          default: ''
-          title: Ids
       responses:
         '200':
           description: Successful Response
@@ -412,7 +372,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/app__api__bookmarks__BatchBody'
+              $ref: '#/components/schemas/BatchBody'
         required: true
       responses:
         '200':
@@ -687,428 +647,6 @@ paths:
               schema: {}
       security:
       - HTTPBearer: []
-  /api/v1/settings:
-    get:
-      tags:
-      - settings
-      summary: Get Settings Api
-      operationId: get_settings_api_api_v1_settings_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-    put:
-      tags:
-      - settings
-      summary: Put Settings
-      operationId: put_settings_api_v1_settings_put
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SettingsBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/settings/ai:
-    get:
-      tags:
-      - settings
-      summary: Get Ai
-      operationId: get_ai_api_v1_settings_ai_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-    put:
-      tags:
-      - settings
-      summary: Put Ai
-      operationId: put_ai_api_v1_settings_ai_put
-      requestBody:
-        content:
-          application/json:
-            schema:
-              additionalProperties: true
-              type: object
-              title: Body
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/settings/ai/test:
-    post:
-      tags:
-      - settings
-      summary: Test Ai
-      operationId: test_ai_api_v1_settings_ai_test_post
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-  /api/v1/settings/mcp:
-    get:
-      tags:
-      - settings
-      summary: Get Mcp
-      operationId: get_mcp_api_v1_settings_mcp_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-    put:
-      tags:
-      - settings
-      summary: Put Mcp
-      operationId: put_mcp_api_v1_settings_mcp_put
-      requestBody:
-        content:
-          application/json:
-            schema:
-              additionalProperties: true
-              type: object
-              title: Body
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/settings/mcp/token:
-    post:
-      tags:
-      - settings
-      summary: Rotate Mcp Token
-      operationId: rotate_mcp_token_api_v1_settings_mcp_token_post
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/status:
-    get:
-      tags:
-      - ai
-      summary: Status
-      operationId: status_api_v1_ai_status_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/classify:
-    post:
-      tags:
-      - ai
-      summary: Classify
-      operationId: classify_api_v1_ai_classify_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ClassifyBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/summarize:
-    post:
-      tags:
-      - ai
-      summary: Summarize
-      operationId: summarize_api_v1_ai_summarize_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SummarizeBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/fetch-page-info:
-    post:
-      tags:
-      - ai
-      summary: Fetch Page Info
-      operationId: fetch_page_info_api_v1_ai_fetch_page_info_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/FetchBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/quick-add:
-    post:
-      tags:
-      - ai
-      summary: Quick Add
-      operationId: quick_add_api_v1_ai_quick_add_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/QuickAddBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/quick-add/with-title:
-    post:
-      tags:
-      - ai
-      summary: Quick Add Title
-      operationId: quick_add_title_api_v1_ai_quick_add_with_title_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/QuickAddBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/quick-add/with-category:
-    post:
-      tags:
-      - ai
-      summary: Quick Add Category
-      operationId: quick_add_category_api_v1_ai_quick_add_with_category_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/QuickAddBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/batch:
-    post:
-      tags:
-      - ai
-      summary: Batch
-      operationId: batch_api_v1_ai_batch_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/app__api__ai__BatchBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/tasks:
-    get:
-      tags:
-      - ai
-      summary: Tasks
-      operationId: tasks_api_v1_ai_tasks_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-  /api/v1/ai/tasks/{task_id}:
-    get:
-      tags:
-      - ai
-      summary: Task
-      operationId: task_api_v1_ai_tasks__task_id__get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: task_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Task Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/ai/chat:
-    post:
-      tags:
-      - ai
-      summary: Chat
-      operationId: chat_api_v1_ai_chat_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: stream
-        in: query
-        required: false
-        schema:
-          type: boolean
-          description: SSE stream when true (default)
-          default: true
-          title: Stream
-        description: SSE stream when true (default)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChatBody'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/backup/export:
     get:
       tags:
@@ -1122,6 +660,10 @@ paths:
         in: query
         required: false
         schema:
+          enum:
+          - json
+          - csv
+          - html
           type: string
           default: json
           title: Format
@@ -1147,7 +689,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/app__api__backup__ImportBody'
+              $ref: '#/components/schemas/ImportBody'
         required: true
       responses:
         '200':
@@ -1325,513 +867,6 @@ paths:
           content:
             application/json:
               schema: {}
-  /api/v1/clean/jobs:
-    post:
-      tags:
-      - clean
-      summary: Create Job
-      operationId: create_job_api_v1_clean_jobs_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CleanJobBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/clean/jobs/{job_id}:
-    get:
-      tags:
-      - clean
-      summary: Get Job
-      operationId: get_job_api_v1_clean_jobs__job_id__get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: job_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Job Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/clean/apply:
-    post:
-      tags:
-      - clean
-      summary: Apply
-      operationId: apply_api_v1_clean_apply_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ApplyBody'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/analytics/profile:
-    get:
-      tags:
-      - clean
-      summary: Profile
-      operationId: profile_api_v1_analytics_profile_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-  /api/v1/boards:
-    get:
-      tags:
-      - boards
-      summary: List Boards
-      operationId: list_boards_api_v1_boards_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-      security:
-      - HTTPBearer: []
-    post:
-      tags:
-      - boards
-      summary: Create Board
-      operationId: create_board_api_v1_boards_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BoardCreate'
-        required: true
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/boards/{board_id}:
-    get:
-      tags:
-      - boards
-      summary: Get Board
-      operationId: get_board_api_v1_boards__board_id__get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    patch:
-      tags:
-      - boards
-      summary: Patch Board
-      operationId: patch_board_api_v1_boards__board_id__patch
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BoardPatch'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    delete:
-      tags:
-      - boards
-      summary: Delete Board
-      operationId: delete_board_api_v1_boards__board_id__delete
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/scan:
-    post:
-      tags:
-      - boards
-      summary: Scan
-      operationId: scan_api_v1_boards__board_id__scan_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ScanBody'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/annotations:
-    get:
-      tags:
-      - boards
-      summary: Annotations
-      operationId: annotations_api_v1_boards__board_id__annotations_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/annotations/{aid}:
-    patch:
-      tags:
-      - boards
-      summary: Patch Ann
-      operationId: patch_ann_api_v1_boards__board_id__annotations__aid__patch
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      - name: aid
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Aid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnnPatch'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/annotations/batch:
-    post:
-      tags:
-      - boards
-      summary: Batch Ann
-      operationId: batch_ann_api_v1_boards__board_id__annotations_batch_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnnBatch'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/groups:
-    get:
-      tags:
-      - boards
-      summary: Groups
-      operationId: groups_api_v1_boards__board_id__groups_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    post:
-      tags:
-      - boards
-      summary: Create Group
-      operationId: create_group_api_v1_boards__board_id__groups_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GroupCreate'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/groups/reorder:
-    post:
-      tags:
-      - boards
-      summary: Reorder Groups
-      operationId: reorder_groups_api_v1_boards__board_id__groups_reorder_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/app__api__boards__ReorderBody'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/export:
-    post:
-      tags:
-      - boards
-      summary: Export Board
-      operationId: export_board_api_v1_boards__board_id__export_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ExportBody'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/boards/{board_id}/import:
-    post:
-      tags:
-      - boards
-      summary: Import Board
-      operationId: import_board_api_v1_boards__board_id__import_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: board_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Board Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/app__api__boards__ImportBody'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/shares:
     get:
       tags:
@@ -1956,136 +991,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/oauth/token:
-    post:
-      tags:
-      - mcp
-      summary: Oauth Token
-      description: OAuth2 client_credentials grant for MCP agents.
-      operationId: oauth_token_api_v1_oauth_token_post
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-  /api/v1/mcp/tools:
-    get:
-      tags:
-      - mcp
-      summary: List Tools
-      operationId: list_tools_api_v1_mcp_tools_get
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/mcp/call:
-    post:
-      tags:
-      - mcp
-      summary: Call Tool
-      operationId: call_tool_api_v1_mcp_call_post
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ToolCall'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/mcp:
-    post:
-      tags:
-      - mcp
-      summary: Mcp Streamable
-      description: 'MCP Streamable HTTP transport: JSON-RPC over POST /mcp.
-
-        Accepts initialize / tools/list / tools/call. Returns JSON or SSE when Accept
-        prefers it.'
-      operationId: mcp_streamable_api_v1_mcp_post
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    get:
-      tags:
-      - mcp
-      summary: Mcp Get Info
-      operationId: mcp_get_info_api_v1_mcp_get
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /{full_path}:
     get:
       summary: Spa Fallback
@@ -2111,124 +1016,49 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
-    AnnBatch:
+    BatchBody:
       properties:
-        atomic:
-          type: boolean
-          title: Atomic
-          default: true
-        items:
+        action:
+          type: string
+          title: Action
+        ids:
           items:
-            additionalProperties: true
-            type: object
+            type: string
           type: array
-          title: Items
-      type: object
-      required:
-      - items
-      title: AnnBatch
-    AnnPatch:
-      properties:
-        status:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Status
-        risk:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Risk
-        price_tag:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Price Tag
-        category:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Category
-        group_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Group Id
-        secondary_group_ids:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          title: Secondary Group Ids
-        note:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Note
-        fields:
+          title: Ids
+        payload:
           anyOf:
           - additionalProperties: true
             type: object
           - type: 'null'
-          title: Fields
-      type: object
-      title: AnnPatch
-    ApplyBody:
-      properties:
-        issue_ids:
-          items:
-            type: string
-          type: array
-          title: Issue Ids
-        mark_link_status:
-          type: boolean
-          title: Mark Link Status
-          default: false
-      type: object
-      required:
-      - issue_ids
-      title: ApplyBody
-    BoardCreate:
-      properties:
-        name:
-          type: string
-          title: Name
-        type:
-          type: string
-          title: Type
-          default: ai_channels
-        source_folder_ids:
-          items:
-            type: string
-          type: array
-          title: Source Folder Ids
-          default: []
-      type: object
-      required:
-      - name
-      title: BoardCreate
-    BoardPatch:
-      properties:
-        name:
+          title: Payload
+        folder_id:
           anyOf:
           - type: string
           - type: 'null'
-          title: Name
-        type:
+          title: Folder Id
+        visibility:
           anyOf:
           - type: string
           - type: 'null'
-          title: Type
-        source_folder_ids:
+          title: Visibility
+        is_archived:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Archived
+        tags:
           anyOf:
           - items:
               type: string
             type: array
           - type: 'null'
-          title: Source Folder Ids
+          title: Tags
       type: object
-      title: BoardPatch
+      required:
+      - action
+      - ids
+      title: BatchBody
     Body_import_file_api_v1_backup_import_file_post:
       properties:
         file:
@@ -2357,47 +1187,6 @@ components:
           title: Link Status
       type: object
       title: BookmarkPatch
-    ChatBody:
-      properties:
-        messages:
-          items:
-            additionalProperties: true
-            type: object
-          type: array
-          title: Messages
-      type: object
-      required:
-      - messages
-      title: ChatBody
-    ClassifyBody:
-      properties:
-        title:
-          type: string
-          title: Title
-          default: ''
-        url:
-          type: string
-          title: Url
-        description:
-          type: string
-          title: Description
-          default: ''
-      type: object
-      required:
-      - url
-      title: ClassifyBody
-    CleanJobBody:
-      properties:
-        check_invalid:
-          type: boolean
-          title: Check Invalid
-          default: false
-        concurrency:
-          type: integer
-          title: Concurrency
-          default: 8
-      type: object
-      title: CleanJobBody
     CredentialsBody:
       properties:
         current_password:
@@ -2417,23 +1206,6 @@ components:
       required:
       - current_password
       title: CredentialsBody
-    ExportBody:
-      properties:
-        format:
-          type: string
-          title: Format
-          default: json
-      type: object
-      title: ExportBody
-    FetchBody:
-      properties:
-        url:
-          type: string
-          title: Url
-      type: object
-      required:
-      - url
-      title: FetchBody
     FolderCreate:
       properties:
         name:
@@ -2481,30 +1253,6 @@ components:
           title: Sort Order
       type: object
       title: FolderPatch
-    GroupCreate:
-      properties:
-        name:
-          type: string
-          title: Name
-        color:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Color
-        keywords:
-          items:
-            type: string
-          type: array
-          title: Keywords
-          default: []
-        sort_order:
-          type: integer
-          title: Sort Order
-          default: 0
-      type: object
-      required:
-      - name
-      title: GroupCreate
     HTTPValidationError:
       properties:
         detail:
@@ -2514,6 +1262,35 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    ImportBody:
+      properties:
+        content:
+          type: string
+          title: Content
+        format:
+          type: string
+          enum:
+          - json
+          - csv
+          - html
+          title: Format
+          default: json
+        strategy:
+          type: string
+          enum:
+          - skip_duplicate
+          - merge
+          - replace_all
+          title: Strategy
+          default: skip_duplicate
+        confirm_replace:
+          type: boolean
+          title: Confirm Replace
+          default: false
+      type: object
+      required:
+      - content
+      title: ImportBody
     LoginBody:
       properties:
         username:
@@ -2527,120 +1304,6 @@ components:
       - username
       - password
       title: LoginBody
-    QuickAddBody:
-      properties:
-        url:
-          type: string
-          title: Url
-        title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Title
-        folder_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Folder Id
-      type: object
-      required:
-      - url
-      title: QuickAddBody
-    ScanBody:
-      properties:
-        mode:
-          type: string
-          title: Mode
-          default: full
-      type: object
-      title: ScanBody
-    SettingsBody:
-      properties:
-        theme:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Theme
-        language:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Language
-        site_title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Site Title
-        site_icon:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Site Icon
-        accent:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Accent
-        wallpaper:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Wallpaper
-        card_density:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Card Density
-        root_folder_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Root Folder Id
-        pinned_folder_ids:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          title: Pinned Folder Ids
-        expanded_folder_ids:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          title: Expanded Folder Ids
-        collection_board_name:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Collection Board Name
-        compare_engines:
-          anyOf:
-          - items: {}
-            type: array
-          - type: 'null'
-          title: Compare Engines
-        compare_active_ids:
-          anyOf:
-          - items: {}
-            type: array
-          - type: 'null'
-          title: Compare Active Ids
-        discover_widgets:
-          anyOf:
-          - items: {}
-            type: array
-          - type: 'null'
-          title: Discover Widgets
-        info_entries:
-          anyOf:
-          - items: {}
-            type: array
-          - type: 'null'
-          title: Info Entries
-      type: object
-      title: SettingsBody
     ShareCreate:
       properties:
         target_type:
@@ -2660,7 +1323,7 @@ components:
             format: date-time
           - type: 'null'
           title: Expires At
-          description: Optional absolute expiry (ISO-8601 UTC). Null means never expires.
+          description: Optional share expiry timestamp (UTC). Null means never expires.
       type: object
       required:
       - target_type
@@ -2675,23 +1338,6 @@ components:
       required:
       - password
       title: ShareUnlock
-    SummarizeBody:
-      properties:
-        title:
-          type: string
-          title: Title
-          default: ''
-        url:
-          type: string
-          title: Url
-        description:
-          type: string
-          title: Description
-          default: ''
-      type: object
-      required:
-      - url
-      title: SummarizeBody
     TagCreate:
       properties:
         name:
@@ -2720,20 +1366,6 @@ components:
           title: Color
       type: object
       title: TagPatch
-    ToolCall:
-      properties:
-        name:
-          type: string
-          title: Name
-        arguments:
-          additionalProperties: true
-          type: object
-          title: Arguments
-          default: {}
-      type: object
-      required:
-      - name
-      title: ToolCall
     ValidationError:
       properties:
         loc:
@@ -2760,91 +1392,6 @@ components:
       - msg
       - type
       title: ValidationError
-    app__api__ai__BatchBody:
-      properties:
-        bookmark_ids:
-          items:
-            type: string
-          type: array
-          title: Bookmark Ids
-        actions:
-          items:
-            type: string
-          type: array
-          title: Actions
-          default:
-          - summarize
-      type: object
-      required:
-      - bookmark_ids
-      title: BatchBody
-    app__api__backup__ImportBody:
-      properties:
-        content:
-          type: string
-          title: Content
-        format:
-          type: string
-          title: Format
-          default: json
-        strategy:
-          type: string
-          title: Strategy
-          default: skip_duplicate
-        confirm_replace:
-          type: boolean
-          title: Confirm Replace
-          default: false
-      type: object
-      required:
-      - content
-      title: ImportBody
-    app__api__boards__ImportBody:
-      properties:
-        data:
-          additionalProperties: true
-          type: object
-          title: Data
-        merge:
-          type: boolean
-          title: Merge
-          default: true
-      type: object
-      required:
-      - data
-      title: ImportBody
-    app__api__boards__ReorderBody:
-      properties:
-        ordered_ids:
-          items:
-            type: string
-          type: array
-          title: Ordered Ids
-      type: object
-      required:
-      - ordered_ids
-      title: ReorderBody
-    app__api__bookmarks__BatchBody:
-      properties:
-        action:
-          type: string
-          title: Action
-        ids:
-          items:
-            type: string
-          type: array
-          title: Ids
-        payload:
-          anyOf:
-          - additionalProperties: true
-            type: object
-          - type: 'null'
-          title: Payload
-      type: object
-      required:
-      - action
-      - ids
-      title: BatchBody
     app__api__bookmarks__ReorderBody:
       properties:
         folder_id:
