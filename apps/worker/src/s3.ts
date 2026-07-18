@@ -124,8 +124,6 @@ async function signedFetch(
   const authorization = `AWS4-HMAC-SHA256 Credential=${creds.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
   const urlHost = forcePath ? host : `${bucket}.${host}`;
-  const url = `${base.replace(host, urlHost)}${canonicalUri}${qs ? `?${qs}` : ""}`;
-  // rebuild base correctly for virtual-hosted
   const finalUrl = forcePath
     ? `${base}${canonicalUri}${qs ? `?${qs}` : ""}`
     : `https://${urlHost}${canonicalUri}${qs ? `?${qs}` : ""}`;
@@ -140,7 +138,7 @@ async function signedFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(finalUrl || url, {
+    return await fetch(finalUrl, {
       method,
       headers: reqHeaders,
       body: payload.length ? payload : undefined,
@@ -158,26 +156,61 @@ async function signedFetch(
   }
 }
 
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * ListObjectsV2. With `paginate: true` it follows NextContinuationToken until
+ * the listing is complete, so retention sees every object — not just the first
+ * page (MH-BACKUP-001). Without it, a single page of `maxKeys` (default 1000)
+ * is returned, which connection tests use with `maxKeys: 1`.
+ */
 export async function s3ListObjects(
   creds: S3Creds,
-  opts: { prefix?: string; maxKeys?: number; timeoutMs?: number } = {},
+  opts: { prefix?: string; maxKeys?: number; timeoutMs?: number; paginate?: boolean } = {},
 ): Promise<{ ok: true; keys: { Key: string; LastModified?: string }[] } | { ok: false; status: number; message: string; code?: string }> {
-  const query: Record<string, string> = {
-    "list-type": "2",
-    "max-keys": String(opts.maxKeys ?? 1),
-  };
-  if (opts.prefix) query.prefix = opts.prefix;
+  const keys: { Key: string; LastModified?: string }[] = [];
+  let continuationToken: string | undefined;
+  // Hard page cap so a hostile/looping endpoint cannot spin forever.
+  const maxPages = opts.paginate ? 1000 : 1;
   try {
-    const r = await signedFetch(creds, "GET", "", query, null, undefined, opts.timeoutMs ?? 10_000);
-    const text = await r.text();
-    if (!r.ok) {
-      return { ok: false, status: r.status, message: text.slice(0, 200) };
-    }
-    const keys: { Key: string; LastModified?: string }[] = [];
-    const re = /<Contents>[\s\S]*?<Key>([^<]+)<\/Key>[\s\S]*?(?:<LastModified>([^<]+)<\/LastModified>)?[\s\S]*?<\/Contents>/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text))) {
-      keys.push({ Key: m[1]!, LastModified: m[2] });
+    for (let page = 0; page < maxPages; page += 1) {
+      const query: Record<string, string> = {
+        "list-type": "2",
+        "max-keys": String(opts.maxKeys ?? 1000),
+      };
+      if (opts.prefix) query.prefix = opts.prefix;
+      if (continuationToken) query["continuation-token"] = continuationToken;
+      const r = await signedFetch(
+        creds,
+        "GET",
+        "",
+        query,
+        null,
+        undefined,
+        opts.timeoutMs ?? 10_000,
+      );
+      const text = await r.text();
+      if (!r.ok) {
+        return { ok: false, status: r.status, message: text.slice(0, 200) };
+      }
+      const re = /<Contents>[\s\S]*?<Key>([^<]+)<\/Key>[\s\S]*?(?:<LastModified>([^<]+)<\/LastModified>)?[\s\S]*?<\/Contents>/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text))) {
+        keys.push({ Key: decodeXmlEntities(m[1]!), LastModified: m[2] });
+      }
+      const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(text);
+      const tokenMatch = text.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/);
+      if (!opts.paginate || !truncated || !tokenMatch) {
+        return { ok: true, keys };
+      }
+      continuationToken = decodeXmlEntities(tokenMatch[1]!);
     }
     return { ok: true, keys };
   } catch (e) {

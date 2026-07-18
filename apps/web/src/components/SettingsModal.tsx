@@ -354,6 +354,41 @@ function BackupSection() {
   );
 }
 
+/* ---------- remote backup shared bits ---------- */
+
+type RunNowResult = {
+  ok: boolean;
+  retention_ok?: boolean;
+  retention_error?: string;
+};
+
+/** Coerce the keep_backups input string; empty/invalid → undefined (keep previous). */
+function parseKeepBackups(raw: string): number | undefined {
+  const n = Number.parseInt(raw.trim(), 10);
+  return Number.isInteger(n) && n >= 1 ? n : undefined;
+}
+
+/** Persistent warning card fed by GET config; disappears once the fields are cleared. */
+function RetentionWarning({ cfg, testId }: { cfg: any; testId: string }) {
+  const { t } = useI18n();
+  if (!cfg.last_retention_error) return null;
+  return (
+    <div
+      className="card"
+      data-testid={testId}
+      style={{ borderColor: "var(--warn)", background: "rgba(217,119,6,.06)" }}
+    >
+      <div>
+        {t("lastRetentionError")}: {cfg.last_retention_error}
+      </div>
+      <div className="muted-sm">
+        {cfg.last_retention_error_at ? cfg.last_retention_error_at : null}
+        {cfg.last_retention_failed != null ? ` · ${t("failed")}: ${cfg.last_retention_failed}` : null}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- webdav ---------- */
 
 function WebdavSection() {
@@ -361,15 +396,42 @@ function WebdavSection() {
   const { t } = useI18n();
   const { toast, showToast } = useToast();
   const [webdav, setWebdav] = useState<any>({});
+  const [keepInput, setKeepInput] = useState("");
+
+  async function refresh() {
+    const r = await api.get<any>("/backup/webdav");
+    setWebdav(r);
+    setKeepInput(r.keep_backups != null ? String(r.keep_backups) : "");
+  }
 
   useEffect(() => {
-    void api.get("/backup/webdav").then(setWebdav);
+    void refresh();
   }, [api]);
 
   async function save() {
-    const r = await api.put("/backup/webdav", webdav);
+    const body = { ...webdav };
+    const keep = parseKeepBackups(keepInput);
+    if (keep != null) body.keep_backups = keep;
+    const r = await api.put<any>("/backup/webdav", body);
     setWebdav(r);
+    setKeepInput(r.keep_backups != null ? String(r.keep_backups) : "");
     showToast(`WebDAV ${t("save")} ✓`);
+  }
+
+  async function runNow() {
+    try {
+      const r = await api.post<RunNowResult>("/backup/webdav");
+      if (r.retention_ok === false) {
+        showToast(
+          `${t("retentionPartialFailed")}${r.retention_error ? `: ${r.retention_error}` : ""}`,
+        );
+      } else {
+        showToast("WebDAV ✓");
+      }
+      await refresh();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function test() {
@@ -426,21 +488,47 @@ function WebdavSection() {
           onChange={(e) => setWebdav({ ...webdav, path: e.target.value })}
         />
       </label>
+      <div className="settings-grid">
+        <label className="field">
+          {t("backupTime")} (HH:mm)
+          <input
+            className="input input-mono"
+            placeholder="02:00"
+            value={webdav.backup_time || ""}
+            data-testid="webdav-backup-time"
+            onChange={(e) => setWebdav({ ...webdav, backup_time: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          {t("keepBackups")}
+          <input
+            className="input input-mono"
+            type="number"
+            min={1}
+            step={1}
+            value={keepInput}
+            data-testid="webdav-keep-backups"
+            onChange={(e) => setKeepInput(e.target.value)}
+          />
+        </label>
+      </div>
+      <RetentionWarning cfg={webdav} testId="webdav-retention-warning" />
       <div className="row">
         <button className="btn btn-soft" type="button" onClick={() => void test()}>
           {t("testConn")}
         </button>
-        <button
-          className="btn"
-          type="button"
-          onClick={() => void api.post("/backup/webdav").then(() => showToast("WebDAV ✓"))}
-        >
+        <button className="btn" type="button" onClick={() => void runNow()}>
           {t("runNow")}
         </button>
         <button className="btn btn-primary" type="button" onClick={() => void save()}>
           {t("save")}
         </button>
       </div>
+      {webdav.last_backup_at ? (
+        <div className="muted">
+          {t("lastBackup")}: {webdav.last_backup_at}
+        </div>
+      ) : null}
       <Toast message={toast} />
     </div>
   );
@@ -453,15 +541,42 @@ function S3Section() {
   const { t } = useI18n();
   const { toast, showToast } = useToast();
   const [s3, setS3] = useState<any>({});
+  const [keepInput, setKeepInput] = useState("");
+
+  async function refresh() {
+    const r = await api.get<any>("/backup/s3");
+    setS3(r);
+    setKeepInput(r.keep_backups != null ? String(r.keep_backups) : "");
+  }
 
   useEffect(() => {
-    void api.get("/backup/s3").then(setS3);
+    void refresh();
   }, [api]);
 
   async function save() {
-    const r = await api.put("/backup/s3", s3);
+    const body = { ...s3 };
+    const keep = parseKeepBackups(keepInput);
+    if (keep != null) body.keep_backups = keep;
+    const r = await api.put<any>("/backup/s3", body);
     setS3(r);
+    setKeepInput(r.keep_backups != null ? String(r.keep_backups) : "");
     showToast(`S3 ${t("save")} ✓`);
+  }
+
+  async function runNow() {
+    try {
+      const r = await api.post<RunNowResult>("/backup/s3");
+      if (r.retention_ok === false) {
+        showToast(
+          `${t("retentionPartialFailed")}${r.retention_error ? `: ${r.retention_error}` : ""}`,
+        );
+      } else {
+        showToast("S3 ✓");
+      }
+      await refresh();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function test() {
@@ -519,12 +634,25 @@ function S3Section() {
           />
         </label>
         <label className="field">
-          Backup time (HH:mm)
+          {t("backupTime")} (HH:mm)
           <input
             className="input input-mono"
             placeholder="02:00"
             value={s3.backup_time || ""}
+            data-testid="s3-backup-time"
             onChange={(e) => setS3({ ...s3, backup_time: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          {t("keepBackups")}
+          <input
+            className="input input-mono"
+            type="number"
+            min={1}
+            step={1}
+            value={keepInput}
+            data-testid="s3-keep-backups"
+            onChange={(e) => setKeepInput(e.target.value)}
           />
         </label>
         <label className="field">
@@ -545,15 +673,12 @@ function S3Section() {
           />
         </label>
       </div>
+      <RetentionWarning cfg={s3} testId="s3-retention-warning" />
       <div className="row">
         <button className="btn btn-soft" type="button" onClick={() => void test()}>
           {t("testConn")}
         </button>
-        <button
-          className="btn"
-          type="button"
-          onClick={() => void api.post("/backup/s3").then(() => showToast("S3 ✓"))}
-        >
+        <button className="btn" type="button" onClick={() => void runNow()}>
           {t("runNow")}
         </button>
         <button className="btn btn-primary" type="button" onClick={() => void save()}>

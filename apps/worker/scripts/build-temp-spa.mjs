@@ -33,9 +33,6 @@ export async function buildTempSpa(outDir, marker) {
     resolve: {
       alias: {
         "@markhub/api-client": path.join(REPO_DIR, "packages/api-client/src/index.ts"),
-        "@markhub/core": path.join(REPO_DIR, "packages/core/src/index.ts"),
-        "@markhub/ui": path.join(REPO_DIR, "packages/ui/src/index.ts"),
-        "@": path.join(WEB_DIR, "src"),
       },
     },
     build: {

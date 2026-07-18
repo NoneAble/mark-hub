@@ -415,19 +415,26 @@ def test_s3_retention_prunes_and_reports_delete_failure():
 
 def test_cf_deploy_readme_documents_remote_migrations_and_secrets():
     """RQG-CF-DEPLOY-001: production instructions must not rely on --local alone."""
+    import json
     from pathlib import Path
 
-    readme = Path(__file__).resolve().parents[2] / "README.md"
-    text = readme.read_text(encoding="utf-8")
-    assert "migrations apply markhub --remote" in text
+    root = Path(__file__).resolve().parents[2]
+    text = (root / "README.md").read_text(encoding="utf-8")
     assert "MARKHUB_MASTER_KEY" in text
     assert "DEFAULT_ADMIN_PASSWORD" in text
     assert "JWT_SECRET" in text
-    # Must not present local-only as the sole production path
-    cloudflare = text.split("## Cloudflare", 1)[1].split("## License", 1)[0]
-    # First production block should mention remote before any sole --local instruction
-    assert "--remote" in cloudflare
+    # The documented production path (`pnpm run deploy`) must apply REMOTE
+    # migrations — never --local — before deploying.
+    pkg = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    deploy_script = pkg["scripts"]["deploy"]
+    assert "migrations apply DB --remote" in deploy_script
+    assert "--local" not in deploy_script
+    # The Cloudflare deployment section must establish every secret.
+    cloudflare = text.split("## Deployment", 1)[1].split("## Development", 1)[0]
     assert "secret put MARKHUB_MASTER_KEY" in cloudflare
+    assert "secret put JWT_SECRET" in cloudflare
+    assert "secret put DEFAULT_ADMIN_PASSWORD" in cloudflare
+    assert "pnpm run deploy" in cloudflare
 
 
 def test_worker_cron_is_15_minutes():

@@ -51,19 +51,14 @@ function Caret({ open }: { open: boolean }) {
 export function Field({
   label,
   children,
-  hint,
-  row,
 }: {
   label: React.ReactNode;
   children: React.ReactNode;
-  hint?: React.ReactNode;
-  row?: boolean;
 }) {
   return (
     <div className="field">
       <span className="field-label">{label}</span>
-      {row ? <div className="row" style={{ flexWrap: "nowrap", gap: 8 }}>{children}</div> : children}
-      {hint ? <span className="field-hint">{hint}</span> : null}
+      {children}
     </div>
   );
 }
@@ -437,12 +432,10 @@ export function Switch({
   checked,
   onChange,
   label,
-  testId,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label?: React.ReactNode;
-  testId?: string;
 }) {
   return (
     <label className="switch-wrap">
@@ -451,7 +444,6 @@ export function Switch({
         className="switch-input"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        data-testid={testId}
       />
       <span className="switch-track" aria-hidden>
         <span className="switch-thumb" />

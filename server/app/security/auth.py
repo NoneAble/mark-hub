@@ -106,16 +106,3 @@ async def get_current_user(
             },
         )
     return user
-
-
-async def get_optional_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: AsyncSession = Depends(get_db),
-) -> User | None:
-    if credentials is None:
-        return None
-    payload = decode_token(credentials.credentials)
-    if not payload or "user_id" not in payload:
-        return None
-    result = await db.execute(select(User).where(User.id == payload["user_id"]))
-    return result.scalar_one_or_none()

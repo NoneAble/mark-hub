@@ -35,10 +35,10 @@ export function LetterAvatar({
 }: {
   url?: string;
   title?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md";
 }) {
   const b = brandOf(url || title || "?");
-  const cls = size === "lg" ? "letter-avatar lg" : size === "sm" ? "letter-avatar sm" : "letter-avatar";
+  const cls = size === "sm" ? "letter-avatar sm" : "letter-avatar";
   return (
     <div className={cls} style={{ background: b.color }} title={b.domain}>
       {b.letter}
@@ -96,74 +96,48 @@ export function KbdHint({ className }: { className?: string }) {
   );
 }
 
+/** VuePress-style search trigger: looks like an input, opens the search modal. */
 export function SearchField({
-  value,
-  onChange,
   placeholder,
   filled,
-  style,
   className,
-  testId,
-  /** When set, field acts as a VuePress-style trigger (opens search modal). */
   onActivate,
   /** Show ⌘K / Ctrl+K affordance on the right. */
   shortcutHint,
-  onKeyDown,
-  autoFocus,
 }: {
-  value: string;
-  onChange: (v: string) => void;
   placeholder?: string;
   filled?: boolean;
-  style?: React.CSSProperties;
   className?: string;
-  testId?: string;
-  onActivate?: () => void;
+  onActivate: () => void;
   shortcutHint?: boolean;
-  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
-  autoFocus?: boolean;
 }) {
-  const trigger = Boolean(onActivate);
   return (
     <div
-      className={`search-field${filled ? " filled" : ""}${trigger ? " search-field-trigger" : ""}${
+      className={`search-field${filled ? " filled" : ""} search-field-trigger${
         className ? ` ${className}` : ""
       }`}
-      style={style}
-      onClick={trigger ? onActivate : undefined}
-      role={trigger ? "button" : undefined}
-      tabIndex={trigger ? 0 : undefined}
-      onKeyDown={
-        trigger
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onActivate?.();
-              }
-            }
-          : undefined
-      }
+      onClick={onActivate}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
     >
       <span className="search-icon" aria-hidden>
         <SearchIcon size={19} />
       </span>
       <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value=""
         placeholder={placeholder}
-        data-testid={testId}
-        readOnly={trigger}
-        tabIndex={trigger ? -1 : undefined}
-        onFocus={
-          trigger
-            ? (e) => {
-                e.target.blur();
-                onActivate?.();
-              }
-            : undefined
-        }
-        onKeyDown={onKeyDown}
-        autoFocus={autoFocus}
+        readOnly
+        tabIndex={-1}
+        onFocus={(e) => {
+          e.target.blur();
+          onActivate();
+        }}
         aria-label={placeholder}
       />
       {shortcutHint ? <KbdHint /> : null}

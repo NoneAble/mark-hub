@@ -55,7 +55,6 @@ server/tests
 **/*_test.py
 **/test_*.py
 .pytest.ini
-ui-design
 plan.md
 docs
 scripts

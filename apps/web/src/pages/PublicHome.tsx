@@ -63,31 +63,6 @@ function flattenBookmarks(node: NavNode): NavNode[] {
   return (node.children || []).flatMap(flattenBookmarks);
 }
 
-function matchesQuery(n: NavNode, qq: string): boolean {
-  if (n.type === "bookmark") {
-    const tags = (n.tags || []).map((t) => (typeof t === "string" ? t : t.name)).join(" ");
-    return (
-      (n.title || "").toLowerCase().includes(qq) ||
-      (n.url || "").toLowerCase().includes(qq) ||
-      (n.description || "").toLowerCase().includes(qq) ||
-      tags.toLowerCase().includes(qq)
-    );
-  }
-  return (n.name || "").toLowerCase().includes(qq);
-}
-
-function filterTree(nodes: NavNode[], qq: string): NavNode[] {
-  if (!qq) return nodes;
-  return nodes
-    .map((n) => {
-      if (n.type === "bookmark") return matchesQuery(n, qq) ? n : null;
-      const kids = filterTree(n.children || [], qq);
-      if (kids.length || matchesQuery(n, qq)) return { ...n, children: kids };
-      return null;
-    })
-    .filter(Boolean) as NavNode[];
-}
-
 /** Keep only bookmarks matching `pred` (folders collapse when empty). */
 function filterTreeBy(nodes: NavNode[], pred: (n: NavNode) => boolean): NavNode[] {
   return nodes
@@ -243,7 +218,6 @@ export function PublicHome() {
   const [rawBookmarks, setRawBookmarks] = useState<HomeBookmark[]>([]);
   const [tags, setTags] = useState<TagLike[]>([]);
   const [editMode, setEditMode] = useState(false);
-  const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<Selected>("all");
   const [selTag, setSelTag] = useState<string | null>(null);
@@ -446,7 +420,6 @@ export function PublicHome() {
   );
 
   const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
     let base = tree;
     if (selected !== "all" && selected !== "archived") {
       const find = (nodes: NavNode[]): NavNode | null => {
@@ -463,16 +436,14 @@ export function PublicHome() {
       base = node ? [node] : [];
     }
     if (selTag) base = filterTreeBy(base, (n) => hasTag(n, selTag));
-    return filterTree(base, qq);
-  }, [tree, selected, selTag, q]);
+    return base;
+  }, [tree, selected, selTag]);
 
   const groups = useMemo(() => {
     if (selected === "archived") {
-      const qq = q.trim().toLowerCase();
       const items = archivedBookmarks
         .filter((b) => (selTag ? hasTag(b as NavNode, selTag) : true))
-        .map<NavNode>((b) => ({ ...b, type: "bookmark" }))
-        .filter((n) => !qq || matchesQuery(n, qq));
+        .map<NavNode>((b) => ({ ...b, type: "bookmark" }));
       return items.length ? [{ id: "__archived", name: t("archived"), items }] : [];
     }
     if (selected === "all" ) {
@@ -509,7 +480,7 @@ export function PublicHome() {
       }
     }
     return out;
-  }, [filtered, selected, selTag, q, archivedBookmarks, t]);
+  }, [filtered, selected, selTag, archivedBookmarks, t]);
 
   /* ---------- bookmark actions ---------- */
 
@@ -712,8 +683,6 @@ export function PublicHome() {
           <strong style={{ fontSize: 16 }}>{t("appName")}</strong>
         </div>
         <SearchField
-          value={q}
-          onChange={setQ}
           placeholder={t("searchPh")}
           filled
           className="public-search"
@@ -922,7 +891,6 @@ export function PublicHome() {
                         tags: bm.tags,
                       }}
                       editMode={showEdit}
-                      linkTitleOnly={false}
                       onArchive={showEdit ? () => void toggleArchived(bm) : undefined}
                       onEdit={showEdit ? () => editFromNode(bm) : undefined}
                       onDelete={showEdit ? () => void deleteBm(bm.id) : undefined}
@@ -984,7 +952,6 @@ export function PublicHome() {
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         items={searchItems}
-        initialQuery={q}
         placeholder={t("searchPh")}
         emptyLabel={t("searchNoResults")}
         openLabel={t("searchOpen")}

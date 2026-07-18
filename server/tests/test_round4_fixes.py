@@ -27,15 +27,15 @@ async def test_folder_delete_rejects_unknown_mode(client: AsyncClient, auth_head
 
 
 @pytest.mark.asyncio
-async def test_openapi_paths_cover_core_collections():
-    """F-010: checked-in contract should include collection CRUD paths."""
-    from pathlib import Path
-
-    text = Path(__file__).resolve().parents[2].joinpath("docs/openapi.yaml").read_text()
+async def test_openapi_paths_cover_core_collections(client: AsyncClient):
+    """F-010: the live OpenAPI contract must include collection CRUD paths."""
+    r = await client.get("/openapi.json")
+    assert r.status_code == 200
+    paths = r.json()["paths"]
     for needle in (
-        "/api/v1/bookmarks:",
-        "/api/v1/folders:",
-        "/api/v1/tags:",
-        "/api/v1/backup/s3:",
+        "/api/v1/bookmarks",
+        "/api/v1/folders",
+        "/api/v1/tags",
+        "/api/v1/backup/s3",
     ):
-        assert needle in text, f"missing {needle}"
+        assert needle in paths, f"missing {needle}"

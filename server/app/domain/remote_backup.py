@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,74 @@ from app.domain.settings_svc import get_json_setting, get_setting, set_json_sett
 from app.utils.errors import api_error
 from app.utils.s3_validate import normalize_s3_prefix, validate_s3_config
 from app.utils.timeutil import server_now
+
+logger = logging.getLogger("markhub.remote_backup")
+
+# Cap for the structured retention_failures list returned to the API; the
+# attempted/failed counts stay accurate and every failure is logged in full.
+RETENTION_FAILURES_CAP = 20
+
+
+def _retention_result(
+    *,
+    pruned: int,
+    attempted: int,
+    failures: list[dict],
+    list_error: str | None,
+) -> dict:
+    """Build the shared retention status payload (MH-BACKUP-001).
+
+    ``retention_error`` stays the human summary: ``list failed: ...`` when the
+    listing itself failed, ``delete failed (N): <first message>`` when N>=1
+    deletes failed. ``retention_failures`` is the structured per-key list,
+    capped at RETENTION_FAILURES_CAP entries while counts stay accurate.
+    """
+    failed = len(failures)
+    retention_ok = list_error is None and failed == 0
+    if list_error is not None:
+        retention_error: str | None = list_error
+    elif failed:
+        retention_error = f"delete failed ({failed}): {failures[0]['message']}"
+    else:
+        retention_error = None
+    for failure in failures:
+        logger.warning(
+            "retention delete failed for %s: %s", failure["key"], failure["message"]
+        )
+    return {
+        "pruned": pruned,
+        "attempted": attempted,
+        "failed": failed,
+        "retention_failures": failures[:RETENTION_FAILURES_CAP],
+        "retention_ok": retention_ok,
+        "retention_error": retention_error,
+    }
+
+
+def _persist_retention_state(cfg: dict, retention: dict) -> None:
+    """Persist/clear retention failure state on the config (MH-BACKUP-002)."""
+    if not retention.get("retention_ok", True):
+        cfg["last_retention_error"] = retention.get("retention_error")
+        cfg["last_retention_error_at"] = server_now().isoformat() + "Z"
+        cfg["last_retention_failed"] = int(retention.get("failed") or 0)
+    else:
+        cfg.pop("last_retention_error", None)
+        cfg.pop("last_retention_error_at", None)
+        cfg.pop("last_retention_failed", None)
+
+
+def _backup_response(retention: dict, **extra) -> dict:
+    return {
+        "ok": True,
+        **extra,
+        "retention_ok": retention.get("retention_ok", True),
+        "retention_error": retention.get("retention_error"),
+        "pruned": retention.get("pruned", 0),
+        "attempted": retention.get("attempted", 0),
+        "failed": retention.get("failed", 0),
+        "retention_failures": retention.get("retention_failures", []),
+    }
+
 
 # ─── WebDAV ───────────────────────────────────────────────
 
@@ -26,6 +95,9 @@ async def get_webdav_config(db: AsyncSession, user_id: str) -> dict:
         "keep_backups": int(cfg.get("keep_backups") or 7),
         "backup_time": cfg.get("backup_time") or "02:00",
         "last_backup_at": cfg.get("last_backup_at"),
+        "last_retention_error": cfg.get("last_retention_error"),
+        "last_retention_error_at": cfg.get("last_retention_error_at"),
+        "last_retention_failed": cfg.get("last_retention_failed"),
     }
 
 
@@ -103,8 +175,9 @@ def _webdav_upload_and_prune_sync(
         os.unlink(tmp)
 
     pruned = 0
-    retention_ok = True
-    retention_error: str | None = None
+    attempted = 0
+    failures: list[dict] = []
+    list_error: str | None = None
     try:
         listing = client.list(prefix)
         files = sorted(
@@ -115,22 +188,20 @@ def _webdav_upload_and_prune_sync(
             ],
             reverse=True,
         )
-        for old in files[keep:]:
+        candidates = files[keep:]
+        attempted = len(candidates)
+        for old in candidates:
+            remote = old if old.startswith(prefix) else prefix + old.lstrip("/")
             try:
-                remote = old if old.startswith(prefix) else prefix + old.lstrip("/")
                 client.clean(remote)
                 pruned += 1
             except Exception as e:
-                retention_ok = False
-                retention_error = f"delete failed: {str(e)[:120]}"
+                failures.append({"key": remote, "message": str(e)[:120]})
     except Exception as e:
-        retention_ok = False
-        retention_error = f"list failed: {str(e)[:120]}"
-    return {
-        "pruned": pruned,
-        "retention_ok": retention_ok,
-        "retention_error": retention_error,
-    }
+        list_error = f"list failed: {str(e)[:120]}"
+    return _retention_result(
+        pruned=pruned, attempted=attempted, failures=failures, list_error=list_error
+    )
 
 
 async def run_webdav_backup(db: AsyncSession, user_id: str) -> dict:
@@ -159,18 +230,9 @@ async def run_webdav_backup(db: AsyncSession, user_id: str) -> dict:
             timeout=60.0,
         )
         cfg["last_backup_at"] = server_now().isoformat() + "Z"
-        if not retention.get("retention_ok", True):
-            cfg["last_retention_error"] = retention.get("retention_error")
-        else:
-            cfg.pop("last_retention_error", None)
+        _persist_retention_state(cfg, retention)
         await set_json_setting(db, user_id, "webdav_config", cfg)
-        return {
-            "ok": True,
-            "path": path,
-            "retention_ok": retention.get("retention_ok", True),
-            "retention_error": retention.get("retention_error"),
-            "pruned": retention.get("pruned", 0),
-        }
+        return _backup_response(retention, path=path)
     except Exception as e:
         raise api_error("webdav_backup_failed", str(e)[:300])
 
@@ -193,6 +255,9 @@ async def get_s3_config(db: AsyncSession, user_id: str) -> dict:
         "force_path_style": cfg.get("force_path_style", True),
         "last_backup_at": cfg.get("last_backup_at"),
         "last_backup_key": cfg.get("last_backup_key"),
+        "last_retention_error": cfg.get("last_retention_error"),
+        "last_retention_error_at": cfg.get("last_retention_error_at"),
+        "last_retention_failed": cfg.get("last_retention_failed"),
     }
 
 
@@ -321,8 +386,9 @@ def _s3_put_and_prune_sync(
     client = _s3_client(cfg, secret)
     client.put_object(Bucket=cfg["bucket"], Key=key, Body=body, ContentType="application/json")
     pruned = 0
-    retention_ok = True
-    retention_error: str | None = None
+    attempted = 0
+    failures: list[dict] = []
+    list_error: str | None = None
     try:
         objs: list[dict] = []
         token = None
@@ -347,21 +413,19 @@ def _s3_put_and_prune_sync(
             if "markhub-backup-" in o.get("Key", "") and o.get("Key", "").endswith(".json")
         ]
         objs = sorted(objs, key=lambda o: o["LastModified"], reverse=True)
-        for old in objs[keep:]:
+        candidates = objs[keep:]
+        attempted = len(candidates)
+        for old in candidates:
             try:
                 client.delete_object(Bucket=cfg["bucket"], Key=old["Key"])
                 pruned += 1
             except Exception as e:
-                retention_ok = False
-                retention_error = f"delete failed: {str(e)[:120]}"
+                failures.append({"key": old["Key"], "message": str(e)[:120]})
     except Exception as e:
-        retention_ok = False
-        retention_error = f"list failed: {str(e)[:120]}"
-    return {
-        "pruned": pruned,
-        "retention_ok": retention_ok,
-        "retention_error": retention_error,
-    }
+        list_error = f"list failed: {str(e)[:120]}"
+    return _retention_result(
+        pruned=pruned, attempted=attempted, failures=failures, list_error=list_error
+    )
 
 
 async def test_s3(db: AsyncSession, user_id: str) -> dict:
@@ -411,17 +475,8 @@ async def run_s3_backup(db: AsyncSession, user_id: str) -> dict:
         )
         cfg["last_backup_at"] = server_now().isoformat() + "Z"
         cfg["last_backup_key"] = key
-        if not retention.get("retention_ok", True):
-            cfg["last_retention_error"] = retention.get("retention_error")
-        else:
-            cfg.pop("last_retention_error", None)
+        _persist_retention_state(cfg, retention)
         await set_json_setting(db, user_id, "s3_config", cfg)
-        return {
-            "ok": True,
-            "key": key,
-            "retention_ok": retention.get("retention_ok", True),
-            "retention_error": retention.get("retention_error"),
-            "pruned": retention.get("pruned", 0),
-        }
+        return _backup_response(retention, key=key)
     except Exception as e:
         raise api_error("s3_backup_failed", str(e)[:300])

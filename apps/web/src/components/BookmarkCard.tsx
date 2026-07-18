@@ -41,8 +41,6 @@ type Props = {
   /** Batch selection (edit mode): render a checkbox overlay. */
   selected?: boolean;
   onSelectToggle?: () => void;
-  /** When true, only the title is a link; otherwise the whole card is an anchor. */
-  linkTitleOnly?: boolean;
 };
 
 export function BookmarkCard({
@@ -53,7 +51,6 @@ export function BookmarkCard({
   onArchive,
   selected,
   onSelectToggle,
-  linkTitleOnly = true,
 }: Props) {
   const b = brandOf(bm.url);
   // Show a tooltip with the full title only when the title is truncated.
@@ -83,25 +80,9 @@ export function BookmarkCard({
         <BmAvatar bm={bm} />
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row" style={{ gap: 5, flexWrap: "nowrap" }}>
-            {linkTitleOnly ? (
-              <a
-                className="bm-title grow"
-                href={bm.url}
-                target="_blank"
-                rel="noreferrer"
-                onMouseEnter={onTitleEnter}
-                onMouseLeave={onTitleLeave}
-                onClick={(e) => {
-                  if (editMode) e.preventDefault();
-                }}
-              >
-                {bm.title}
-              </a>
-            ) : (
-              <span className="bm-title grow" onMouseEnter={onTitleEnter} onMouseLeave={onTitleLeave}>
-                {bm.title}
-              </span>
-            )}
+            <span className="bm-title grow" onMouseEnter={onTitleEnter} onMouseLeave={onTitleLeave}>
+              {bm.title}
+            </span>
             {bm.visibility ? (
               <span style={{ fontSize: 10, flex: "none" }} title={bm.visibility}>
                 {visIcon(bm.visibility)}
@@ -164,26 +145,18 @@ export function BookmarkCard({
     </>
   );
 
-  if (!linkTitleOnly) {
-    return (
-      <a
-        className="bm-card"
-        href={bm.url}
-        target="_blank"
-        rel="noreferrer"
-        data-testid={`bm-card-${bm.id}`}
-        onClick={(e) => {
-          if (editMode) e.preventDefault();
-        }}
-      >
-        {body}
-      </a>
-    );
-  }
-
   return (
-    <div className="bm-card" data-testid={`bm-card-${bm.id}`}>
+    <a
+      className="bm-card"
+      href={bm.url}
+      target="_blank"
+      rel="noreferrer"
+      data-testid={`bm-card-${bm.id}`}
+      onClick={(e) => {
+        if (editMode) e.preventDefault();
+      }}
+    >
       {body}
-    </div>
+    </a>
   );
 }

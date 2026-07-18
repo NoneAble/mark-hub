@@ -9,9 +9,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc tsconfig.base.json .
 COPY packages ./packages
 COPY apps/web ./apps/web
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @markhub/core build \
- && pnpm --filter @markhub/api-client build \
- && pnpm --filter @markhub/ui build \
+RUN pnpm --filter @markhub/api-client build \
  && pnpm --filter @markhub/web build
 
 FROM python:3.12-slim AS runtime

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateS3Config, s3BackupObjectKey } from "../src/s3Config";
+import { validateS3Config } from "../src/s3Config";
 
 describe("validateS3Config", () => {
   it("accepts R2-style config", () => {
@@ -50,12 +50,5 @@ describe("validateS3Config", () => {
         keep_backups: 0,
       }).ok,
     ).toBe(false);
-  });
-});
-
-describe("s3BackupObjectKey", () => {
-  it("builds key", () => {
-    const key = s3BackupObjectKey("markhub/", new Date("2026-07-12T03:04:05Z"));
-    expect(key).toBe("markhub/markhub-backup-2026-07-12-03-04-05.json");
   });
 });

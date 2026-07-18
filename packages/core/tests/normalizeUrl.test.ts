@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeUrl, isValidHttpUrl } from "../src/normalizeUrl";
+import { normalizeUrl } from "../src/normalizeUrl";
 
 describe("normalizeUrl", () => {
   it("lowercases host and strips hash", () => {
@@ -32,10 +32,5 @@ describe("normalizeUrl", () => {
 
   it("adds https when scheme missing", () => {
     expect(normalizeUrl("example.com/x")).toBe("https://example.com/x");
-  });
-
-  it("isValidHttpUrl", () => {
-    expect(isValidHttpUrl("https://a.com")).toBe(true);
-    expect(isValidHttpUrl("ftp://a.com")).toBe(false);
   });
 });

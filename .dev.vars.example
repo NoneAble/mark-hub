@@ -1,0 +1,13 @@
+# Secrets for the MarkHub Worker. Copy to .dev.vars for local `wrangler dev`,
+# or set in production with `wrangler secret put <NAME>`.
+# The "Deploy to Cloudflare" button reads this file to prompt for values.
+
+# HMAC secret for signing session JWTs. At least 16 characters.
+JWT_SECRET = "change-me-to-a-long-random-string"
+
+# Master key encrypting stored backup credentials (WebDAV/S3). At least 24 characters.
+MARKHUB_MASTER_KEY = "change-me-to-a-longer-random-string!"
+
+# Initial admin password (you are forced to change it on first login).
+# Must NOT be "admin123".
+DEFAULT_ADMIN_PASSWORD = "change-me-strong-password"

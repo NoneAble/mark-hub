@@ -15,9 +15,10 @@ import { waitForPortReleased } from "./port-release.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_DIR = path.resolve(HERE, "..");
 const WRANGLER = path.join(WORKER_DIR, "node_modules", ".bin", "wrangler");
+const REPO_DIR = path.resolve(WORKER_DIR, "..", "..");
 const BOUNDED_RUN =
   process.env.BOUNDED_RUN_MJS ||
-  path.join(os.homedir(), ".pi", "agent", "extensions", "trio-workflow", "bounded-run.mjs");
+  path.join(REPO_DIR, "scripts", "lib", "bounded-run.mjs");
 const OLD_PASSWORD = "WorkerBackupPass12345";
 const NEW_PASSWORD = "WorkerBackupPassChanged12345";
 const children = new Set();
@@ -161,6 +162,53 @@ function shanghaiHHmm() {
   }).format(new Date());
 }
 
+/**
+ * An HH:mm guaranteed OUTSIDE the current 15-minute Shanghai window: 30 min
+ * ahead (mod day) can never share a floor(15) window with "now", even if the
+ * trigger fires a minute later or the offset wraps past midnight.
+ */
+function shanghaiMismatchHHmm() {
+  const [hh, mm] = shanghaiHHmm().split(":").map(Number);
+  const total = (hh * 60 + mm + 30) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Dispatch the real cron entrypoint. The legacy `/__scheduled` path is now
+ * swallowed by the SPA asset fallback (compat date >= 2025-04-01 with
+ * run_worker_first limited to /api/*), so use workerd's scheduled handler
+ * endpoint, which `wrangler dev --test-scheduled` exposes on the same port.
+ */
+async function triggerScheduled(base) {
+  const response = await fetch(`${base}/cdn-cgi/handler/scheduled?cron=*/15+*+*+*+*`, {
+    signal: AbortSignal.timeout(30_000),
+  });
+  assert.equal(response.status, 200, await response.text());
+}
+
+/**
+ * Rewind the persisted s3_config.last_backup_at to a past Shanghai day.
+ * shouldRunBackup fires at most once per Asia/Shanghai calendar day and the
+ * REST API never accepts last_backup_at, so scheduled-run tests reset the
+ * day-guard directly in D1 (same --persist-to sqlite; cross-process writes
+ * are visible to the running dev server immediately).
+ */
+async function rewindS3LastBackupAt() {
+  await startChild(
+    [
+      "d1",
+      "execute",
+      "markhub",
+      "--local",
+      "--persist-to",
+      tempDir,
+      "--command",
+      "UPDATE settings SET value = json_set(value, '$.last_backup_at', '2020-01-01T00:00:00.000Z') WHERE key = 's3_config'",
+    ],
+    { timeoutMs: 30_000 },
+  );
+}
+
 async function login(base) {
   let result = await api(base, "POST", "/api/v1/auth/login", {
     body: { username: "admin", password: OLD_PASSWORD },
@@ -208,8 +256,7 @@ async function testWebdav(base, providerUrl, token) {
       "markhub-backup/markhub-backup-2020-01-01-00-00-03.json",
     ],
   });
-  const scheduled = await fetch(`${base}/__scheduled`, { signal: AbortSignal.timeout(30_000) });
-  assert.equal(scheduled.status, 200, await scheduled.text());
+  await triggerScheduled(base);
   const afterSchedule = provider.snapshot();
   assert.equal(afterSchedule.webdav_files.length, 2, JSON.stringify(afterSchedule));
   assert.ok(
@@ -217,20 +264,49 @@ async function testWebdav(base, providerUrl, token) {
     JSON.stringify(afterSchedule.requests),
   );
 
+  // Partial retention failure with TWO distinct failing keys: the structured
+  // response must identify each one (MH-BACKUP-001). Seed 4, upload makes 5,
+  // keep 2 -> candidates 03/02/01; 02 and 01 are injected to fail.
   provider.reset({
     webdav_files: [
       "markhub-backup/markhub-backup-2020-01-01-00-00-01.json",
       "markhub-backup/markhub-backup-2020-01-01-00-00-02.json",
       "markhub-backup/markhub-backup-2020-01-01-00-00-03.json",
+      "markhub-backup/markhub-backup-2020-01-01-00-00-04.json",
     ],
-    fail_webdav_delete: ["markhub-backup-2020-01-01-00-00-02.json"],
+    fail_webdav_delete: [
+      "markhub-backup-2020-01-01-00-00-02.json",
+      "markhub-backup-2020-01-01-00-00-01.json",
+    ],
   });
   result = await api(base, "POST", "/api/v1/backup/webdav", { token });
   assert.equal(result.response.status, 200, result.text);
   assert.equal(result.body.ok, true, result.text);
   assert.equal(result.body.retention_ok, false, result.text);
   assert.equal(result.body.pruned, 1, result.text);
+  assert.equal(result.body.attempted, 3, result.text);
+  assert.equal(result.body.failed, 2, result.text);
+  assert.match(result.body.retention_error, /delete failed \(2\)/);
   assert.match(result.body.retention_error, /HTTP 503/);
+  assert.deepEqual(
+    result.body.retention_failures.map((failure) => failure.key),
+    [
+      "markhub-backup-2020-01-01-00-00-02.json",
+      "markhub-backup-2020-01-01-00-00-01.json",
+    ],
+    result.text,
+  );
+  for (const failure of result.body.retention_failures) {
+    assert.match(failure.message, /HTTP 503/, result.text);
+  }
+  assert.equal(provider.snapshot().webdav_files.length, 4, JSON.stringify(provider.snapshot()));
+
+  // Persisted status must survive into GET (MH-BACKUP-002).
+  result = await api(base, "GET", "/api/v1/backup/webdav", { token });
+  assert.equal(result.response.status, 200, result.text);
+  assert.match(result.body.last_retention_error, /delete failed \(2\)/);
+  assert.equal(result.body.last_retention_failed, 2, result.text);
+  assert.match(result.body.last_retention_error_at, /^\d{4}-\d{2}-\d{2}T/);
   console.log("ok worker WebDAV connection/upload/retention/partial-delete/scheduled");
 }
 
@@ -268,6 +344,9 @@ async function testS3(base, providerUrl, token) {
   assert.equal(result.response.status, 200, result.text);
   assert.equal(result.body.retention_ok, true, result.text);
   assert.equal(result.body.pruned, 1, result.text);
+  assert.equal(result.body.attempted, 1, result.text);
+  assert.equal(result.body.failed, 0, result.text);
+  assert.equal(result.body.retention_failures, undefined, result.text);
   assert.equal(provider.snapshot().s3_objects.length, 2);
   console.log("ok worker fake-S3 success");
 
@@ -279,19 +358,186 @@ async function testS3(base, providerUrl, token) {
   assert.ok(!provider.snapshot().requests.some((request) => request.method === "DELETE"));
   console.log("ok worker fake-S3 upload failure");
 
+  // Partial retention failure with TWO distinct failing keys (MH-BACKUP-001):
+  // seed 4, upload makes 5, keep 2 -> candidates 03/02/01; 02 and 01 fail.
   provider.reset({
     bucket: "markhub-test",
-    s3_objects: s3Objects(3),
-    fail_s3_delete: ["markhub-backup/markhub-backup-2020-01-01-00-00-02.json"],
+    s3_objects: s3Objects(4),
+    fail_s3_delete: [
+      "markhub-backup/markhub-backup-2020-01-01-00-00-02.json",
+      "markhub-backup/markhub-backup-2020-01-01-00-00-01.json",
+    ],
   });
   result = await api(base, "POST", "/api/v1/backup/s3", { token });
   assert.equal(result.response.status, 200, result.text);
   assert.equal(result.body.ok, true, result.text);
   assert.equal(result.body.retention_ok, false, result.text);
   assert.equal(result.body.pruned, 1, result.text);
+  assert.equal(result.body.attempted, 3, result.text);
+  assert.equal(result.body.failed, 2, result.text);
+  assert.match(result.body.retention_error, /delete failed \(2\)/);
   assert.match(result.body.retention_error, /S3 DELETE failed: HTTP 503/);
-  assert.equal(provider.snapshot().s3_objects.length, 3);
+  assert.deepEqual(
+    result.body.retention_failures.map((failure) => failure.key),
+    [
+      "markhub-backup/markhub-backup-2020-01-01-00-00-02.json",
+      "markhub-backup/markhub-backup-2020-01-01-00-00-01.json",
+    ],
+    result.text,
+  );
+  for (const failure of result.body.retention_failures) {
+    assert.match(failure.message, /S3 DELETE failed: HTTP 503/, result.text);
+  }
+  assert.equal(provider.snapshot().s3_objects.length, 4);
+
+  // Persisted status must survive into GET (MH-BACKUP-002).
+  const uploadedKey = result.body.key;
+  result = await api(base, "GET", "/api/v1/backup/s3", { token });
+  assert.equal(result.response.status, 200, result.text);
+  assert.equal(result.body.last_backup_key, uploadedKey, result.text);
+  assert.match(result.body.last_retention_error, /delete failed \(2\)/);
+  assert.equal(result.body.last_retention_failed, 2, result.text);
+  assert.match(result.body.last_retention_error_at, /^\d{4}-\d{2}-\d{2}T/);
   console.log("ok worker fake-S3 partial delete failure/count/status");
+}
+
+/**
+ * Scheduled S3 coverage (MH-BACKUP-003): the REAL cron entrypoint must upload,
+ * list, prune and persist status — not just the run-now POST path.
+ */
+async function testS3Scheduled(base, token) {
+  // The WebDAV stage leaves its config enabled with today's backup_time. Its
+  // once-per-Shanghai-day guard would normally keep it quiet here, but if the
+  // suite straddles Shanghai midnight it would fire again — disable it so the
+  // scheduled runs below exercise ONLY the S3 branch.
+  let result = await api(base, "PUT", "/api/v1/backup/webdav", {
+    token,
+    body: { enabled: false },
+  });
+  assert.equal(result.response.status, 200, result.text);
+
+  // --- scheduled happy path: PUT + listing + retention prune + persisted status ---
+  result = await api(base, "GET", "/api/v1/backup/s3", { token });
+  assert.equal(result.response.status, 200, result.text);
+  const previousKey = result.body.last_backup_key;
+  assert.ok(previousKey, result.text);
+
+  await rewindS3LastBackupAt();
+  const seeded = s3Objects(3).map((object) => object.key);
+  provider.reset({ bucket: "markhub-test", s3_objects: s3Objects(3) });
+  // Set backup_time right before triggering so the current 15-minute window
+  // cannot roll over between config write and cron dispatch.
+  result = await api(base, "PUT", "/api/v1/backup/s3", {
+    token,
+    body: { enabled: true, keep_backups: 2, backup_time: shanghaiHHmm() },
+  });
+  assert.equal(result.response.status, 200, result.text);
+  await triggerScheduled(base);
+
+  const afterHappy = provider.snapshot();
+  assert.ok(
+    afterHappy.requests.some((request) => request.provider === "s3" && request.method === "PUT"),
+    JSON.stringify(afterHappy.requests),
+  );
+  assert.ok(
+    afterHappy.requests.some((request) => request.provider === "s3" && request.method === "GET"),
+    JSON.stringify(afterHappy.requests),
+  );
+  assert.equal(
+    afterHappy.requests.filter((request) => request.method === "DELETE").length,
+    2,
+    JSON.stringify(afterHappy.requests),
+  );
+  assert.ok(
+    !afterHappy.requests.some((request) => request.provider === "webdav"),
+    JSON.stringify(afterHappy.requests),
+  );
+  // 3 seeded + 1 scheduled upload, keep 2 -> the two oldest were pruned.
+  assert.equal(afterHappy.s3_objects.length, 2, JSON.stringify(afterHappy));
+  assert.ok(afterHappy.s3_objects.includes("markhub-backup/markhub-backup-2020-01-01-00-00-03.json"));
+  const scheduledKey = afterHappy.s3_objects.find((key) => !seeded.includes(key));
+  assert.ok(scheduledKey, JSON.stringify(afterHappy));
+  assert.match(scheduledKey, /^markhub-backup\/markhub-backup-.+\.json$/);
+
+  result = await api(base, "GET", "/api/v1/backup/s3", { token });
+  assert.equal(result.response.status, 200, result.text);
+  assert.equal(result.body.last_backup_key, scheduledKey, result.text);
+  assert.notEqual(result.body.last_backup_key, previousKey, result.text);
+  assert.notEqual(result.body.last_backup_at, "2020-01-01T00:00:00.000Z", result.text);
+  // A fully successful scheduled run clears the run-now stage's partial-failure marks.
+  assert.equal(result.body.last_retention_error, null, result.text);
+  assert.equal(result.body.last_retention_error_at, null, result.text);
+  assert.equal(result.body.last_retention_failed, null, result.text);
+  console.log("ok worker fake-S3 scheduled happy path (PUT/list/prune/persisted status)");
+
+  // --- scheduled time mismatch: outside the 15-minute window nothing runs ---
+  await rewindS3LastBackupAt();
+  provider.reset({ bucket: "markhub-test", s3_objects: s3Objects(2) });
+  result = await api(base, "PUT", "/api/v1/backup/s3", {
+    token,
+    body: { backup_time: shanghaiMismatchHHmm() },
+  });
+  assert.equal(result.response.status, 200, result.text);
+  await triggerScheduled(base);
+
+  const afterMismatch = provider.snapshot();
+  assert.ok(
+    !afterMismatch.requests.some((request) => request.method === "PUT"),
+    JSON.stringify(afterMismatch.requests),
+  );
+  assert.equal(afterMismatch.s3_objects.length, 2, JSON.stringify(afterMismatch));
+  result = await api(base, "GET", "/api/v1/backup/s3", { token });
+  // The rewound day-guard value survives untouched: the run really was skipped.
+  assert.equal(result.body.last_backup_at, "2020-01-01T00:00:00.000Z", result.text);
+  assert.equal(result.body.last_backup_key, scheduledKey, result.text);
+  console.log("ok worker fake-S3 scheduled time-mismatch skip");
+
+  // --- scheduled partial retention failure persists structured status ---
+  await rewindS3LastBackupAt();
+  provider.reset({
+    bucket: "markhub-test",
+    s3_objects: s3Objects(4),
+    fail_s3_delete: [
+      "markhub-backup/markhub-backup-2020-01-01-00-00-02.json",
+      "markhub-backup/markhub-backup-2020-01-01-00-00-01.json",
+    ],
+  });
+  result = await api(base, "PUT", "/api/v1/backup/s3", {
+    token,
+    body: { backup_time: shanghaiHHmm() },
+  });
+  assert.equal(result.response.status, 200, result.text);
+  await triggerScheduled(base);
+
+  const afterPartial = provider.snapshot();
+  // 4 seeded + 1 upload, keep 2 -> 3 delete attempts, 2 injected failures.
+  assert.equal(
+    afterPartial.requests.filter((request) => request.method === "DELETE").length,
+    3,
+    JSON.stringify(afterPartial.requests),
+  );
+  assert.equal(afterPartial.s3_objects.length, 4, JSON.stringify(afterPartial));
+  result = await api(base, "GET", "/api/v1/backup/s3", { token });
+  assert.equal(result.response.status, 200, result.text);
+  assert.match(result.body.last_retention_error, /delete failed \(2\)/);
+  assert.match(result.body.last_retention_error_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(result.body.last_retention_failed, 2, result.text);
+  assert.notEqual(result.body.last_backup_key, scheduledKey, result.text);
+  console.log("ok worker fake-S3 scheduled partial retention failure persisted");
+
+  // A later fully successful backup clears the persisted failure marks. The
+  // scheduler only fires once per Shanghai day (the partial run above already
+  // consumed today's slot), so the clearing run uses run-now on purpose.
+  provider.reset({ bucket: "markhub-test", s3_objects: s3Objects(2) });
+  result = await api(base, "POST", "/api/v1/backup/s3", { token });
+  assert.equal(result.response.status, 200, result.text);
+  assert.equal(result.body.retention_ok, true, result.text);
+  assert.equal(result.body.failed, 0, result.text);
+  result = await api(base, "GET", "/api/v1/backup/s3", { token });
+  assert.equal(result.body.last_retention_error, null, result.text);
+  assert.equal(result.body.last_retention_error_at, null, result.text);
+  assert.equal(result.body.last_retention_failed, null, result.text);
+  console.log("ok worker fake-S3 scheduled retention-error clearing");
 }
 
 async function main() {
@@ -325,13 +571,16 @@ async function main() {
       "--log-level",
       "warn",
     ],
-    { longRunning: true, timeoutMs: 115_000 },
+    // The scheduled-S3 stage adds three cron dispatches plus d1-execute
+    // day-guard rewinds, so the dev server's bounded-run budget grew with it.
+    { longRunning: true, timeoutMs: 175_000 },
   );
   const base = `http://127.0.0.1:${workerPort}`;
   await waitFor(`${base}/api/v1/health`);
   const token = await login(base);
   await testWebdav(base, providerUrl, token);
   await testS3(base, providerUrl, token);
+  await testS3Scheduled(base, token);
   await stopChild(worker);
 }
 
@@ -345,8 +594,8 @@ let overallTimer;
 try {
   const overallTimeout = new Promise((_, reject) => {
     overallTimer = setTimeout(
-      () => reject(new Error("remote backup integration timed out after 120000ms")),
-      120_000,
+      () => reject(new Error("remote backup integration timed out after 180000ms")),
+      180_000,
     );
   });
   await Promise.race([

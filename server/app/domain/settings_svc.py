@@ -9,11 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Setting
 from app.security.crypto import decrypt_secret, encrypt_secret
 
-SECRET_KEYS = {
-    "webdav_password",
-    "s3_secret_access_key",
-}
-
 
 async def get_setting(db: AsyncSession, user_id: str, key: str, default: str = "") -> str:
     row = (
@@ -62,24 +57,3 @@ async def get_json_setting(db: AsyncSession, user_id: str, key: str, default: An
 
 async def set_json_setting(db: AsyncSession, user_id: str, key: str, value: Any) -> None:
     await set_setting(db, user_id, key, json.dumps(value, ensure_ascii=False), is_secret=False)
-
-
-async def get_all_public_settings(db: AsyncSession, user_id: str) -> dict[str, Any]:
-    rows = (
-        await db.execute(select(Setting).where(Setting.user_id == user_id))
-    ).scalars().all()
-    out: dict[str, Any] = {}
-    for r in rows:
-        if r.is_secret or r.key in SECRET_KEYS:
-            out[f"{r.key}_set"] = bool(r.value)
-            continue
-        try:
-            out[r.key] = json.loads(r.value)
-        except (json.JSONDecodeError, TypeError):
-            out[r.key] = r.value
-    # defaults
-    out.setdefault("theme", "system")
-    out.setdefault("language", "auto")
-    out.setdefault("site_title", "MarkHub")
-    out.setdefault("card_density", "comfortable")
-    return out

@@ -17,7 +17,7 @@ const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
 const WORKER_DIR = path.resolve(SCRIPT_DIR, "..");
 const REPO_DIR = path.resolve(WORKER_DIR, "../..");
 const REAL_CONFIG = path.join(WORKER_DIR, "wrangler.toml");
-const BOUNDED_RUN = path.join(os.homedir(), ".pi/agent/extensions/trio-workflow/bounded-run.mjs");
+const BOUNDED_RUN = path.join(REPO_DIR, "scripts/lib/bounded-run.mjs");
 const TEMP_ROOT = path.join(os.tmpdir(), `markhub-cf-assets-${process.pid}-${randomUUID()}`);
 const ADMIN_PASSWORD = "CfAssetHarnessPass-2026";
 const JWT_SECRET = "cf-asset-harness-jwt-secret-2026";
@@ -133,6 +133,14 @@ async function readRealConfig() {
     config.assets?.not_found_handling,
     "single-page-application",
     "real config must retain SPA fallback",
+  );
+  // MH-CF-001: without worker-first API routing, navigation-mode /api/*
+  // requests would be answered by the SPA fallback on modern compat dates.
+  const runWorkerFirst = config.assets?.run_worker_first;
+  assert.ok(
+    runWorkerFirst === true ||
+      (Array.isArray(runWorkerFirst) && runWorkerFirst.includes("/api/*")),
+    "real config assets.run_worker_first must cover /api/*",
   );
   return { config, database };
 }
@@ -254,6 +262,49 @@ async function verifyEndpoints(worker) {
       assert.equal(spaResponse.status, 200);
       assert.match(spaResponse.headers.get("content-type") || "", /text\/html/);
       assert.ok(spa.includes(MARKER), "temporary SPA marker was not served");
+
+      // MH-CF-001: browser navigations to /api/* must still reach the Worker
+      // (JSON), while front-end routes keep serving the SPA shell.
+      const navigateHeaders = {
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      };
+      const navigateApi = await fetch(`http://127.0.0.1:${worker.port}/api/v1/health`, {
+        headers: navigateHeaders,
+        signal: AbortSignal.timeout(2_000),
+      });
+      assert.equal(navigateApi.status, 200, "navigate-mode /api/v1/health failed");
+      assert.match(
+        navigateApi.headers.get("content-type") || "",
+        /application\/json/,
+        "navigate-mode /api/v1/health did not reach the Worker (SPA fallback?)",
+      );
+      const navigateHealth = await navigateApi.json();
+      assert.equal(navigateHealth.service, "markhub-worker");
+      const navigateMissingApi = await fetch(
+        `http://127.0.0.1:${worker.port}/api/v1/definitely-missing-route`,
+        { headers: navigateHeaders, signal: AbortSignal.timeout(2_000) },
+      );
+      // Unauthenticated unknown API path: Worker answers 401 JSON — the point
+      // is it must never fall through to the SPA HTML shell.
+      assert.equal(navigateMissingApi.status, 401);
+      assert.match(
+        navigateMissingApi.headers.get("content-type") || "",
+        /application\/json/,
+        "unknown /api/* navigations must return Worker JSON, not SPA HTML",
+      );
+      const navigateSpa = await fetch(`http://127.0.0.1:${worker.port}/admin/login`, {
+        headers: navigateHeaders,
+        signal: AbortSignal.timeout(2_000),
+      });
+      const navigateSpaBody = await navigateSpa.text();
+      assert.equal(navigateSpa.status, 200);
+      assert.match(navigateSpa.headers.get("content-type") || "", /text\/html/);
+      assert.ok(
+        navigateSpaBody.includes(MARKER),
+        "navigate-mode SPA route lost the SPA fallback",
+      );
       return;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);

@@ -30,16 +30,9 @@ import {
   type S3Creds,
 } from "./s3";
 
-export interface Env {
-  DB: D1Database;
-  ASSETS?: Fetcher;
-  JWT_SECRET?: string;
-  MARKHUB_MASTER_KEY?: string;
-  DEFAULT_ADMIN_USERNAME?: string;
-  DEFAULT_ADMIN_PASSWORD?: string;
-  /** Test-only local binding. Not configured in deployed wrangler environments. */
-  RESTORE_TEST_FAIL_PHASE?: string;
-}
+// `Env` comes from wrangler-generated types (worker-configuration.d.ts, kept
+// in sync by `pnpm test:types`) merged with src/bindings.d.ts for secrets and
+// the test-only injection binding (MH-MAINT-001).
 
 const VERSION = "0.1.0";
 const MAX_FOLDER_DEPTH = 32;
@@ -50,6 +43,10 @@ const FOLDER_DELETE_MODES = new Set<FolderDeleteMode>([
 ]);
 
 const RESTORE_STAGE_CHUNK_BYTES = 1_500_000;
+/** How long a replace_all restore may hold the per-user write lease. */
+const RESTORE_LEASE_TTL_MS = 10 * 60_000;
+/** Orphaned staging rows (Worker killed mid-restore) are reclaimed after this. */
+const RESTORE_STAGING_TTL_MS = 60 * 60_000;
 const PORTABLE_BACKUP_METADATA_FORMAT = "markhub-portable-metadata";
 
 type PortableBackupMetadata = {
@@ -153,8 +150,6 @@ const err = (code: string, message: string, status = 400) =>
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 
-type UserRow = { id: string; username: string; must_change_password: number | boolean };
-
 const FORCE_CHANGE_ALLOW = new Set([
   "POST /auth/login",
   "POST /auth/logout",
@@ -212,7 +207,14 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 
 function b64url(data: ArrayBuffer | Uint8Array): string {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  let s = btoa(String.fromCharCode(...bytes));
+  // Fixed-size chunks: spreading the whole array into fromCharCode overflows
+  // the call stack around ~125KB of input (MH-EXPORT-002).
+  const parts: string[] = [];
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    parts.push(String.fromCharCode(...bytes.subarray(i, i + chunk)));
+  }
+  const s = btoa(parts.join(""));
   return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
@@ -379,6 +381,75 @@ async function getSecretSetting(env: Env, userId: string, key: string): Promise<
   }
 }
 
+/* ---------- per-user restore lease (MH-RESTORE-001) ---------- */
+
+/**
+ * Atomically acquire (or take over an expired) restore lease for the user.
+ * A single upsert keeps acquisition race-free on D1.
+ */
+async function acquireRestoreLease(
+  env: Env,
+  userId: string,
+  restoreId: string,
+): Promise<boolean> {
+  const t = now();
+  const expires = new Date(Date.now() + RESTORE_LEASE_TTL_MS).toISOString();
+  const result = await env.DB.prepare(
+    `INSERT INTO restore_leases (user_id, restore_id, acquired_at, expires_at)
+     VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT(user_id) DO UPDATE SET
+       restore_id = excluded.restore_id,
+       acquired_at = excluded.acquired_at,
+       expires_at = excluded.expires_at
+     WHERE restore_leases.expires_at < ?3`,
+  )
+    .bind(userId, restoreId, t, expires)
+    .run();
+  return Number(result.meta.changes || 0) > 0;
+}
+
+/**
+ * Extend our lease; false means it expired (writes may have slipped in) or
+ * another restore took over. Expired-but-unclaimed leases are NOT revived —
+ * the snapshot can no longer be trusted.
+ */
+async function renewRestoreLease(
+  env: Env,
+  userId: string,
+  restoreId: string,
+): Promise<boolean> {
+  const t = now();
+  const expires = new Date(Date.now() + RESTORE_LEASE_TTL_MS).toISOString();
+  const result = await env.DB.prepare(
+    "UPDATE restore_leases SET expires_at = ? WHERE user_id = ? AND restore_id = ? AND expires_at > ?",
+  )
+    .bind(expires, userId, restoreId, t)
+    .run();
+  return Number(result.meta.changes || 0) > 0;
+}
+
+async function releaseRestoreLease(env: Env, userId: string, restoreId: string): Promise<void> {
+  await env.DB.prepare("DELETE FROM restore_leases WHERE user_id = ? AND restore_id = ?")
+    .bind(userId, restoreId)
+    .run();
+}
+
+/** restore_id of the user's unexpired lease, if any. */
+async function activeRestoreLease(env: Env, userId: string): Promise<string | null> {
+  try {
+    const row = await env.DB.prepare(
+      "SELECT restore_id FROM restore_leases WHERE user_id = ? AND expires_at > ?",
+    )
+      .bind(userId, now())
+      .first<{ restore_id: string }>();
+    return row?.restore_id ?? null;
+  } catch {
+    // Pre-0009 database: no lease table means no restore can be running
+    // (acquire/renew stay strict, so replace_all refuses to run unmigrated).
+    return null;
+  }
+}
+
 async function syncFts(
   env: Env,
   b: { id: string; title: string; url: string; description?: string | null },
@@ -424,6 +495,36 @@ async function tagsForBookmarks(
       list.push({ id: r.id, name: r.name, color: r.color ?? null });
       map.set(r.bookmark_id, list);
     }
+  }
+  return map;
+}
+
+/**
+ * Load tags for every live bookmark of a user in ONE query.
+ * Full-dataset paths (export, nav trees) must stay within the D1 Free
+ * per-invocation query budget regardless of bookmark count (MH-EXPORT-001).
+ */
+async function tagsForAllBookmarks(
+  env: Env,
+  userId: string,
+): Promise<Map<string, { id: string; name: string; color: string | null }[]>> {
+  const map = new Map<string, { id: string; name: string; color: string | null }[]>();
+  const rows = (
+    await env.DB.prepare(
+      `SELECT bt.bookmark_id as bookmark_id, t.id as id, t.name as name, t.color as color
+       FROM bookmark_tags bt
+       INNER JOIN tags t ON t.id = bt.tag_id
+       INNER JOIN bookmarks b ON b.id = bt.bookmark_id
+       WHERE b.user_id = ? AND b.deleted_at IS NULL
+       ORDER BY bt.bookmark_id, t.name`,
+    )
+      .bind(userId)
+      .all<any>()
+  ).results;
+  for (const r of rows) {
+    const list = map.get(r.bookmark_id) || [];
+    list.push({ id: r.id, name: r.name, color: r.color ?? null });
+    map.set(r.bookmark_id, list);
   }
   return map;
 }
@@ -620,16 +721,15 @@ async function ensureFoldersByIdentity(
 }
 
 /** Soft-delete GC: permanently remove rows soft-deleted > 30 days ago. */
-async function runSoftDeleteGc(env: Env, userId?: string): Promise<{ bookmarks: number; folders: number }> {
+async function runSoftDeleteGc(env: Env): Promise<{ bookmarks: number; folders: number }> {
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  let bmSql =
-    "SELECT id FROM bookmarks WHERE deleted_at IS NOT NULL AND deleted_at < ?";
-  const bmBinds: unknown[] = [cutoff];
-  if (userId) {
-    bmSql += " AND user_id = ?";
-    bmBinds.push(userId);
-  }
-  const bms = (await env.DB.prepare(bmSql).bind(...bmBinds).all<{ id: string }>()).results;
+  const bms = (
+    await env.DB.prepare(
+      "SELECT id FROM bookmarks WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    )
+      .bind(cutoff)
+      .all<{ id: string }>()
+  ).results;
   for (const b of bms) {
     await env.DB.prepare("DELETE FROM bookmark_tags WHERE bookmark_id = ?").bind(b.id).run();
     try {
@@ -639,16 +739,11 @@ async function runSoftDeleteGc(env: Env, userId?: string): Promise<{ bookmarks: 
     }
     await env.DB.prepare("DELETE FROM bookmarks WHERE id = ?").bind(b.id).run();
   }
-  let fdSql =
-    "SELECT id, parent_id FROM folders WHERE deleted_at IS NOT NULL AND deleted_at < ? AND is_system = 0";
-  const fdBinds: unknown[] = [cutoff];
-  if (userId) {
-    fdSql += " AND user_id = ?";
-    fdBinds.push(userId);
-  }
   const fds = (
-    await env.DB.prepare(fdSql)
-      .bind(...fdBinds)
+    await env.DB.prepare(
+      "SELECT id, parent_id FROM folders WHERE deleted_at IS NOT NULL AND deleted_at < ? AND is_system = 0",
+    )
+      .bind(cutoff)
       .all<{ id: string; parent_id: string | null }>()
   ).results;
   const parentById = new Map(fds.map((f) => [f.id, f.parent_id]));
@@ -815,18 +910,6 @@ async function assertLiveFolder(
   return null;
 }
 
-/** Throw-style folder check for non-HTTP callers. */
-async function requireLiveFolder(env: Env, userId: string, folderId: string | null | undefined): Promise<string> {
-  if (!folderId) throw new Error("folder_id is required");
-  const row = await env.DB.prepare(
-    "SELECT id FROM folders WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
-  )
-    .bind(folderId, userId)
-    .first<{ id: string }>();
-  if (!row) throw new Error("folder not found");
-  return row.id;
-}
-
 /** Build folder_id → path segments for native MarkHub JSON export. */
 function folderPathSegments(folders: any[]): Map<string, string[]> {
   const byId = new Map(folders.map((f) => [f.id, f]));
@@ -865,10 +948,7 @@ async function exportJsonPayload(env: Env, userId: string) {
   const tags = (
     await env.DB.prepare("SELECT * FROM tags WHERE user_id = ?").bind(userId).all()
   ).results;
-  const tagMap = await tagsForBookmarks(
-    env,
-    bookmarks.map((b) => b.id),
-  );
+  const tagMap = await tagsForAllBookmarks(env, userId);
   const paths = folderPathSegments(folders);
   const enriched = bookmarks.map((b) => {
     const row = serializeBookmarkRow(b, tagMap.get(b.id) || []);
@@ -896,6 +976,40 @@ async function exportJsonPayload(env: Env, userId: string) {
 }
 
 /**
+ * Retention outcome shared by S3/WebDAV prune paths (MH-BACKUP-001).
+ * `retention_failures` identifies every failed key (capped for transport;
+ * `failed` keeps the true total), `retention_error` stays a human summary.
+ */
+type RetentionResult = {
+  pruned: number;
+  attempted: number;
+  failed: number;
+  retention_ok: boolean;
+  retention_error?: string;
+  retention_failures?: { key: string; message: string }[];
+};
+
+const RETENTION_FAILURE_DETAIL_CAP = 20;
+
+function retentionOutcome(
+  attempted: number,
+  pruned: number,
+  failures: { key: string; message: string }[],
+): RetentionResult {
+  if (!failures.length) {
+    return { pruned, attempted, failed: 0, retention_ok: true };
+  }
+  return {
+    pruned,
+    attempted,
+    failed: failures.length,
+    retention_ok: false,
+    retention_error: `delete failed (${failures.length}): ${failures[0]!.message.slice(0, 120)}`,
+    retention_failures: failures.slice(0, RETENTION_FAILURE_DETAIL_CAP),
+  };
+}
+
+/**
  * Prune remote backups beyond keep_backups. Surfaces partial failures instead of
  * silently swallowing them (RQG-BACKUP-RETENTION-001).
  */
@@ -903,11 +1017,13 @@ async function pruneS3Backups(
   creds: S3Creds,
   prefix: string,
   keep: number,
-): Promise<{ pruned: number; retention_ok: boolean; retention_error?: string }> {
-  const listed = await s3ListObjects(creds, { prefix, maxKeys: 1000 });
+): Promise<RetentionResult> {
+  const listed = await s3ListObjects(creds, { prefix, paginate: true });
   if (!listed.ok) {
     return {
       pruned: 0,
+      attempted: 0,
+      failed: 0,
       retention_ok: false,
       retention_error: `list failed: ${listed.message}`,
     };
@@ -917,24 +1033,21 @@ async function pruneS3Backups(
     .sort((a, b) =>
       String(b.LastModified || b.Key).localeCompare(String(a.LastModified || a.Key)),
     );
+  const candidates = sorted.slice(Math.max(0, keep));
   let pruned = 0;
-  const errors: string[] = [];
-  for (const old of sorted.slice(Math.max(0, keep))) {
+  const failures: { key: string; message: string }[] = [];
+  for (const old of candidates) {
     try {
       await s3DeleteObject(creds, old.Key);
       pruned++;
     } catch (e) {
-      errors.push(e instanceof Error ? e.message : String(e));
+      failures.push({ key: old.Key, message: e instanceof Error ? e.message : String(e) });
     }
   }
-  if (errors.length) {
-    return {
-      pruned,
-      retention_ok: false,
-      retention_error: `delete failed (${errors.length}): ${errors[0]!.slice(0, 120)}`,
-    };
+  if (failures.length) {
+    logWarn("s3_retention_failures", { failures });
   }
-  return { pruned, retention_ok: true };
+  return retentionOutcome(candidates.length, pruned, failures);
 }
 
 async function pruneWebdavBackups(
@@ -942,7 +1055,7 @@ async function pruneWebdavBackups(
   pathPrefix: string,
   auth: string,
   keep: number,
-): Promise<{ pruned: number; retention_ok: boolean; retention_error?: string }> {
+): Promise<RetentionResult> {
   try {
     const listUrl = `${base}/${pathPrefix}/`;
     const r = await fetch(listUrl, {
@@ -957,6 +1070,8 @@ async function pruneWebdavBackups(
     if (!r.ok) {
       return {
         pruned: 0,
+        attempted: 0,
+        failed: 0,
         retention_ok: false,
         retention_error: `PROPFIND HTTP ${r.status}`,
       };
@@ -964,34 +1079,33 @@ async function pruneWebdavBackups(
     const text = await r.text();
     const names = [...text.matchAll(/markhub-backup-[^<"'\s]+\.json/g)].map((m) => m[0]!);
     const unique = [...new Set(names)].sort().reverse();
+    const candidates = unique.slice(Math.max(0, keep));
     let pruned = 0;
-    const errors: string[] = [];
-    for (const name of unique.slice(Math.max(0, keep))) {
+    const failures: { key: string; message: string }[] = [];
+    for (const name of candidates) {
       try {
         const del = await fetch(`${base}/${pathPrefix}/${name}`, {
           method: "DELETE",
           headers: auth ? { Authorization: auth } : {},
         });
         if (!del.ok && del.status !== 404) {
-          errors.push(`DELETE ${name}: HTTP ${del.status}`);
+          failures.push({ key: name, message: `DELETE ${name}: HTTP ${del.status}` });
         } else {
           pruned++;
         }
       } catch (e) {
-        errors.push(e instanceof Error ? e.message : String(e));
+        failures.push({ key: name, message: e instanceof Error ? e.message : String(e) });
       }
     }
-    if (errors.length) {
-      return {
-        pruned,
-        retention_ok: false,
-        retention_error: errors[0]!.slice(0, 160),
-      };
+    if (failures.length) {
+      logWarn("webdav_retention_failures", { failures });
     }
-    return { pruned, retention_ok: true };
+    return retentionOutcome(candidates.length, pruned, failures);
   } catch (e) {
     return {
       pruned: 0,
+      attempted: 0,
+      failed: 0,
       retention_ok: false,
       retention_error: e instanceof Error ? e.message.slice(0, 160) : "list error",
     };
@@ -1025,7 +1139,7 @@ async function runS3Backup(
   env: Env,
   userId: string,
 ): Promise<
-  | { ok: true; key: string; retention_ok: boolean; retention_error?: string; pruned?: number }
+  | ({ ok: true; key: string } & RetentionResult)
   | { ok: false; code: string; message: string }
 > {
   const packed = await getS3Creds(env, userId);
@@ -1057,24 +1171,22 @@ async function runS3Backup(
   cfg.last_backup_key = key;
   if (!retention.retention_ok) {
     cfg.last_retention_error = retention.retention_error;
+    cfg.last_retention_error_at = now();
+    cfg.last_retention_failed = retention.failed;
   } else {
     delete cfg.last_retention_error;
+    delete cfg.last_retention_error_at;
+    delete cfg.last_retention_failed;
   }
   await setSetting(env, userId, "s3_config", JSON.stringify(cfg));
-  return {
-    ok: true,
-    key,
-    retention_ok: retention.retention_ok,
-    retention_error: retention.retention_error,
-    pruned: retention.pruned,
-  };
+  return { ok: true, key, ...retention };
 }
 
 async function runWebdavBackup(
   env: Env,
   userId: string,
 ): Promise<
-  | { ok: true; path: string; retention_ok: boolean; retention_error?: string; pruned?: number }
+  | ({ ok: true; path: string } & RetentionResult)
   | { ok: false; code: string; message: string }
 > {
   const raw = await getSetting(env, userId, "webdav_config");
@@ -1120,18 +1232,16 @@ async function runWebdavBackup(
         pruned: retention.pruned,
       });
       cfg.last_retention_error = retention.retention_error;
+      cfg.last_retention_error_at = now();
+      cfg.last_retention_failed = retention.failed;
     } else {
       delete cfg.last_retention_error;
+      delete cfg.last_retention_error_at;
+      delete cfg.last_retention_failed;
     }
     cfg.last_backup_at = now();
     await setSetting(env, userId, "webdav_config", JSON.stringify(cfg));
-    return {
-      ok: true,
-      path: remotePath,
-      retention_ok: retention.retention_ok,
-      retention_error: retention.retention_error,
-      pruned: retention.pruned,
-    };
+    return { ok: true, path: remotePath, ...retention };
   } catch (e) {
     return {
       ok: false,
@@ -1461,7 +1571,7 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       });
       children.set(f.parent_id, list);
     }
-    const publicTags = await tagsForBookmarks(env, bookmarks.map((b) => b.id));
+    const publicTags = await tagsForAllBookmarks(env, user.id);
     const bmByFolder = new Map<string, any[]>();
     for (const b of bookmarks) {
       if (effectiveVisibility(asVisibility(b.visibility), anc(b.folder_id)) !== "public") continue;
@@ -1558,6 +1668,26 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
   if (!user) return err("unauthorized", "Missing token", 401);
   // Narrow for nested closures (import helpers, etc.)
   const authed = user;
+
+  // While a replace_all restore holds the user's lease, block every write that
+  // could race the snapshot→cutover window (MH-RESTORE-001). A second restore
+  // is rejected here too; the lease upsert below stays the atomic tie-breaker.
+  if (
+    method !== "GET" &&
+    (path.startsWith("/bookmarks") ||
+      path.startsWith("/folders") ||
+      path.startsWith("/tags") ||
+      path.startsWith("/backup/import"))
+  ) {
+    const leaseHolder = await activeRestoreLease(env, user.id);
+    if (leaseHolder) {
+      return err(
+        "restore_in_progress",
+        "A replace_all restore is in progress; retry after it completes",
+        423,
+      );
+    }
+  }
 
   // ── Tags ──
   if (path === "/tags" && method === "GET") {
@@ -2036,7 +2166,7 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
         .bind(user.id)
         .all<any>()
     ).results;
-    const homeTags = await tagsForBookmarks(env, bookmarks.map((b) => b.id));
+    const homeTags = await tagsForAllBookmarks(env, user.id);
     return json({
       folders: folders.map((f) => ({ ...f, is_system: !!f.is_system })),
       bookmarks: bookmarks.map((b) => ({
@@ -2124,6 +2254,17 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     const inbox = await getSetting(env, authed.id, "inbox_folder_id");
     if (!inbox) {
       return err("misconfigured", "inbox_folder_id missing", 500);
+    }
+
+    // Hold the per-user write lease from live snapshot through cutover so no
+    // concurrent restore or CRUD write can slip between them (MH-RESTORE-001).
+    const restoreId = uuid();
+    if (!(await acquireRestoreLease(env, authed.id, restoreId))) {
+      return err(
+        "restore_conflict",
+        "Another replace_all restore is already in progress for this user",
+        409,
+      );
     }
 
     // Snapshot live rows for soft-delete statements (planned, not applied yet)
@@ -2365,7 +2506,6 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       entity_key: string;
       payload: Record<string, unknown>;
     };
-    const restoreId = uuid();
     const stageRows: RestoreStageRow[] = [];
     let operationIndex = 0;
     const stageOperation = (
@@ -2446,52 +2586,89 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       }
     }
 
-    const stageChunks: string[] = [];
-    let chunkRows: string[] = [];
-    let chunkBytes = 2;
-    for (const row of stageRows) {
-      const serialized = JSON.stringify(row);
-      const rowBytes = new TextEncoder().encode(serialized).byteLength;
-      if (rowBytes + 2 > RESTORE_STAGE_CHUNK_BYTES) {
-        return err("restore_too_large", "replace_all contains a row too large for D1 staging", 413);
-      }
-      if (chunkRows.length && chunkBytes + rowBytes + 1 > RESTORE_STAGE_CHUNK_BYTES) {
-        stageChunks.push(`[${chunkRows.join(",")}]`);
-        chunkRows = [];
-        chunkBytes = 2;
-      }
-      chunkRows.push(serialized);
-      chunkBytes += rowBytes + (chunkRows.length > 1 ? 1 : 0);
-    }
-    if (chunkRows.length) stageChunks.push(`[${chunkRows.join(",")}]`);
-
     const cleanupStaging = async () => {
       await env.DB.prepare("DELETE FROM restore_staging WHERE restore_id = ? AND user_id = ?")
         .bind(restoreId, authed.id)
         .run();
     };
-    try {
-      for (const chunk of stageChunks) {
-        await env.DB.prepare(
-          `INSERT INTO restore_staging (restore_id, user_id, kind, entity_key, payload)
-           SELECT ?, ?,
-                  json_extract(value, '$.kind'),
-                  json_extract(value, '$.entity_key'),
-                  json_extract(value, '$.payload')
-           FROM json_each(?)`,
-        )
-          .bind(restoreId, authed.id, chunk)
-          .run();
-      }
-    } catch (e) {
+    const abortRestore = async () => {
       await cleanupStaging().catch(() => undefined);
+      await releaseRestoreLease(env, authed.id, restoreId).catch(() => undefined);
+    };
+
+    // Stream chunks straight into D1 as they fill: holding every serialized
+    // chunk in memory at once roughly doubles peak usage and can breach the
+    // Worker's 128MB isolate limit on 50k-bookmark restores.
+    const insertStageChunk = async (rowsJson: string[]) => {
+      await env.DB.prepare(
+        `INSERT INTO restore_staging (restore_id, user_id, kind, entity_key, payload, created_at)
+         SELECT ?, ?,
+                json_extract(value, '$.kind'),
+                json_extract(value, '$.entity_key'),
+                json_extract(value, '$.payload'),
+                ?
+         FROM json_each(?)`,
+      )
+        .bind(restoreId, authed.id, t, `[${rowsJson.join(",")}]`)
+        .run();
+    };
+    try {
+      let chunkRows: string[] = [];
+      let chunkBytes = 2;
+      for (const row of stageRows) {
+        const serialized = JSON.stringify(row);
+        const rowBytes = new TextEncoder().encode(serialized).byteLength;
+        if (rowBytes + 2 > RESTORE_STAGE_CHUNK_BYTES) {
+          await abortRestore();
+          return err("restore_too_large", "replace_all contains a row too large for D1 staging", 413);
+        }
+        if (chunkRows.length && chunkBytes + rowBytes + 1 > RESTORE_STAGE_CHUNK_BYTES) {
+          await insertStageChunk(chunkRows);
+          chunkRows = [];
+          chunkBytes = 2;
+        }
+        chunkRows.push(serialized);
+        chunkBytes += rowBytes + (chunkRows.length > 1 ? 1 : 0);
+      }
+      if (chunkRows.length) await insertStageChunk(chunkRows);
+    } catch (e) {
+      await abortRestore();
       logError("replace_all_stage_failed", {
         message: e instanceof Error ? e.message : String(e),
       });
       return err("restore_failed", "replace_all staging failed; previous live dataset preserved", 500);
     }
 
+    // Test-only barrier: lets the harness overlap a second restore / CRUD
+    // writes with the staging→cutover window deterministically.
+    const stallMs = Number(env.RESTORE_TEST_STALL_MS || 0);
+    if (stallMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(stallMs, 30_000)));
+    }
+
+    // Staging for large restores can take a while — refresh the lease, and bail
+    // out if it expired and another restore took over meanwhile.
+    if (!(await renewRestoreLease(env, authed.id, restoreId))) {
+      await cleanupStaging().catch(() => undefined);
+      return err(
+        "restore_conflict",
+        "restore lease expired during staging; previous live dataset preserved",
+        409,
+      );
+    }
+
+    const commitTime = now();
     const statements: D1PreparedStatement[] = [
+      // Lease guard: violates NOT NULL (rolling back the whole batch) unless we
+      // still hold an unexpired lease at commit time (MH-RESTORE-001).
+      env.DB.prepare(
+        `INSERT INTO restore_leases (user_id, restore_id, acquired_at, expires_at)
+         SELECT NULL, NULL, NULL, NULL
+         WHERE NOT EXISTS (
+           SELECT 1 FROM restore_leases
+           WHERE user_id = ?1 AND restore_id = ?2 AND expires_at > ?3
+         )`,
+      ).bind(authed.id, restoreId, commitTime),
       env.DB.prepare(
         `INSERT INTO tags (id, user_id, name, color, created_at, updated_at)
          SELECT json_extract(payload, '$.id'), user_id, json_extract(payload, '$.name'),
@@ -2534,11 +2711,19 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     if (env.RESTORE_TEST_FAIL_PHASE === "insert") statements.push(failureStatement());
 
     statements.push(
+      // Scoped to this restore's staged old rows — a user-global delete would
+      // also wipe associations of rows outside the snapshot (MH-RESTORE-001).
       env.DB.prepare(
         `DELETE FROM bookmark_tags
-         WHERE bookmark_id IN (SELECT id FROM bookmarks WHERE user_id = ?)
-            OR tag_id IN (SELECT id FROM tags WHERE user_id = ?)`,
-      ).bind(authed.id, authed.id),
+         WHERE bookmark_id IN (
+             SELECT entity_key FROM restore_staging
+             WHERE restore_id = ? AND user_id = ? AND kind = 'old_bookmark'
+           )
+            OR tag_id IN (
+             SELECT entity_key FROM restore_staging
+             WHERE restore_id = ? AND user_id = ? AND kind = 'delete_tag'
+           )`,
+      ).bind(restoreId, authed.id, restoreId, authed.id),
       env.DB.prepare(
         `INSERT INTO bookmark_tags (bookmark_id, tag_id)
          SELECT json_extract(s.payload, '$.bookmark_id'), t.id
@@ -2578,17 +2763,42 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       ).bind(t, restoreId, authed.id),
     );
     if (env.RESTORE_TEST_FAIL_PHASE === "swap") statements.push(failureStatement());
+
+    // FTS rebuild is part of the atomic cutover: a failure here rolls the whole
+    // restore back instead of silently leaving restored rows unsearchable
+    // (MH-RESTORE-002).
+    statements.push(
+      env.DB.prepare(
+        "DELETE FROM bookmarks_fts WHERE bookmark_id IN (SELECT id FROM bookmarks WHERE user_id = ?)",
+      ).bind(authed.id),
+      env.DB.prepare(
+        `INSERT INTO bookmarks_fts (bookmark_id, title, url, description, tags)
+         SELECT b.id, b.title, b.url, COALESCE(b.description, ''),
+                COALESCE(GROUP_CONCAT(t.name, ' '), '')
+         FROM bookmarks b
+         LEFT JOIN bookmark_tags bt ON bt.bookmark_id = b.id
+         LEFT JOIN tags t ON t.id = bt.tag_id
+         WHERE b.user_id = ? AND b.deleted_at IS NULL
+         GROUP BY b.id, b.title, b.url, b.description`,
+      ).bind(authed.id),
+    );
+    if (env.RESTORE_TEST_FAIL_PHASE === "fts") statements.push(failureStatement());
+
     statements.push(
       env.DB.prepare("DELETE FROM restore_staging WHERE restore_id = ? AND user_id = ?").bind(
         restoreId,
         authed.id,
+      ),
+      env.DB.prepare("DELETE FROM restore_leases WHERE user_id = ? AND restore_id = ?").bind(
+        authed.id,
+        restoreId,
       ),
     );
 
     try {
       await env.DB.batch(statements);
     } catch (e) {
-      await cleanupStaging().catch(() => undefined);
+      await abortRestore();
       logError("replace_all_atomic_failed", {
         message: e instanceof Error ? e.message : String(e),
         phase: env.RESTORE_TEST_FAIL_PHASE || "commit",
@@ -2598,27 +2808,6 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
         "replace_all insert phase failed; previous live dataset preserved (atomic swap rolled back)",
         500,
       );
-    }
-
-    // FTS is optional derived state. Rebuild it in two bulk queries after cutover.
-    try {
-      await env.DB.batch([
-        env.DB.prepare(
-          "DELETE FROM bookmarks_fts WHERE bookmark_id IN (SELECT id FROM bookmarks WHERE user_id = ?)",
-        ).bind(authed.id),
-        env.DB.prepare(
-          `INSERT INTO bookmarks_fts (bookmark_id, title, url, description, tags)
-           SELECT b.id, b.title, b.url, COALESCE(b.description, ''),
-                  COALESCE(GROUP_CONCAT(t.name, ' '), '')
-           FROM bookmarks b
-           LEFT JOIN bookmark_tags bt ON bt.bookmark_id = b.id
-           LEFT JOIN tags t ON t.id = bt.tag_id
-           WHERE b.user_id = ? AND b.deleted_at IS NULL
-           GROUP BY b.id, b.title, b.url, b.description`,
-        ).bind(authed.id),
-      ]);
-    } catch {
-      /* optional */
     }
 
     return json({
@@ -3126,6 +3315,10 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       backup_time: cfg.backup_time || "02:00",
       force_path_style: cfg.force_path_style !== false,
       last_backup_at: cfg.last_backup_at || null,
+      last_backup_key: cfg.last_backup_key || null,
+      last_retention_error: cfg.last_retention_error || null,
+      last_retention_error_at: cfg.last_retention_error_at || null,
+      last_retention_failed: cfg.last_retention_failed ?? null,
     });
   }
   if (path === "/backup/s3" && method === "PUT") {
@@ -3198,36 +3391,6 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       "/backup/s3",
     );
   }
-  if (path === "/backup/s3/test" && method === "POST") {
-    const packed = await getS3Creds(env, user.id);
-    if (!packed) {
-      return json({ ok: false, code: "s3_config", message: "endpoint and bucket required" });
-    }
-    const t0 = Date.now();
-    try {
-      const listed = await s3ListObjects(packed.creds, { maxKeys: 1, timeoutMs: 10_000 });
-      if (!listed.ok) {
-        return json({
-          ok: false,
-          code: listed.code || classifyS3Error(listed.status, listed.message),
-          message: listed.message,
-          latency_ms: Date.now() - t0,
-        });
-      }
-      return json({
-        ok: true,
-        latency_ms: Date.now() - t0,
-        endpoint_reachable: true,
-      });
-    } catch (e) {
-      return json({
-        ok: false,
-        code: "s3_network",
-        message: e instanceof Error ? e.message.slice(0, 200) : "network error",
-        latency_ms: Date.now() - t0,
-      });
-    }
-  }
   if (path === "/backup/s3" && method === "POST") {
     const result = await runS3Backup(env, user.id);
     if (!result.ok) {
@@ -3239,12 +3402,6 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     logInfo("backup_s3_ok", { key: result.key });
     return json(result);
   }
-
-  // board import moved below
-
-
-
-
 
   // Changes
   if (path === "/changes" && method === "GET") {
@@ -3466,6 +3623,9 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       keep_backups: cfg.keep_backups || 7,
       backup_time: cfg.backup_time || "02:00",
       last_backup_at: cfg.last_backup_at || null,
+      last_retention_error: cfg.last_retention_error || null,
+      last_retention_error_at: cfg.last_retention_error_at || null,
+      last_retention_failed: cfg.last_retention_failed ?? null,
     });
   }
   if (path === "/backup/webdav" && method === "PUT") {
@@ -3731,6 +3891,37 @@ export default {
       logInfo("cron_gc", gc);
     } catch (e) {
       logWarn("cron_gc_error", { message: e instanceof Error ? e.message : String(e) });
+    }
+    // Reclaim restore leftovers from Workers killed mid-restore: expired leases
+    // first, then staging rows past TTL with no surviving active lease. Active
+    // restores are protected by both their lease and the (much longer) TTL
+    // (MH-RESTORE-003).
+    try {
+      const nowIso = now();
+      const cutoff = new Date(Date.now() - RESTORE_STAGING_TTL_MS).toISOString();
+      const leases = await env.DB.prepare("DELETE FROM restore_leases WHERE expires_at <= ?")
+        .bind(nowIso)
+        .run();
+      const staging = await env.DB.prepare(
+        `DELETE FROM restore_staging
+         WHERE (created_at IS NULL OR created_at < ?)
+           AND restore_id NOT IN (
+             SELECT restore_id FROM restore_leases WHERE expires_at > ?
+           )`,
+      )
+        .bind(cutoff, nowIso)
+        .run();
+      const cleaned = {
+        expired_leases: Number(leases.meta.changes || 0),
+        staging_rows: Number(staging.meta.changes || 0),
+      };
+      if (cleaned.expired_leases || cleaned.staging_rows) {
+        logInfo("cron_restore_gc", cleaned);
+      }
+    } catch (e) {
+      logWarn("cron_restore_gc_error", {
+        message: e instanceof Error ? e.message : String(e),
+      });
     }
     const users = (await env.DB.prepare("SELECT id FROM users").all<{ id: string }>()).results;
     for (const u of users) {

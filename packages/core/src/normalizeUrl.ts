@@ -65,23 +65,3 @@ export function normalizeUrl(raw: string): string {
   const search = u.search || "";
   return `${scheme}//${host}${port}${path}${search}`;
 }
-
-export function isValidHttpUrl(raw: string): boolean {
-  try {
-    const u = new URL(raw.includes("://") ? raw : `https://${raw}`);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-export function hostnameOf(url: string): string {
-  try {
-    return new URL(url.includes("://") ? url : `https://${url}`).hostname.replace(
-      /^www\./,
-      "",
-    );
-  } catch {
-    return url;
-  }
-}

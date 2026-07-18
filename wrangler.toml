@@ -1,10 +1,44 @@
-# Convenience root pointer — real config lives in apps/worker/wrangler.toml
+# Root Wrangler config — used by the "Deploy to Cloudflare" button and by
+# root-level `wrangler deploy`. Keep in sync with apps/worker/wrangler.toml
+# (same Worker, paths relative to the repo root).
 name = "markhub"
 main = "apps/worker/src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "markhub"
+# Placeholder — the Deploy to Cloudflare flow provisions a real database and
+# rewrites this id; for manual deploys, replace it with your database id.
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "apps/worker/migrations"
+
+[assets]
+directory = "apps/web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+# API routes must reach the Worker even for browser navigation requests (MH-CF-001).
+run_worker_first = ["/api/*"]
+
+[vars]
+DEFAULT_ADMIN_USERNAME = "admin"
+
+# Secrets (set via `wrangler secret put`, or prompted by the deploy button
+# through .dev.vars.example):
+# JWT_SECRET
+# MARKHUB_MASTER_KEY
+# DEFAULT_ADMIN_PASSWORD
+
+# Every 15 minutes: HH:mm backup window matching (RQG-CF-SCHEDULE-001)
+[triggers]
+crons = ["*/15 * * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true

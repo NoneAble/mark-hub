@@ -10,15 +10,12 @@
   --accent-weak: oklch(0.95 0.02 260);
   --accent-text: oklch(0.45 0.16 260);
   --shadow: 0 1px 3px rgba(27, 36, 50, 0.06), 0 4px 14px rgba(27, 36, 50, 0.04);
-  --ok: #16a34a;
   --warn: #d97706;
   --bad: #dc2626;
   /* Text-on-panel variants (brightened in dark mode for WCAG contrast) */
   --ok-text: #15803d;
   --bad-text: #dc2626;
   --radius: 12px;
-  --radius-sm: 9px;
-  --radius-lg: 14px;
   --font: "Noto Sans SC", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --ease: 0.15s ease;
@@ -50,21 +47,6 @@ html.dark {
     transform: none;
   }
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes blink {
-  0%,
-  100% {
-    opacity: 0.2;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 * {
   box-sizing: border-box;
 }
@@ -534,12 +516,6 @@ div.field {
   flex: none;
   user-select: none;
 }
-.letter-avatar.lg {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  font-size: 15px;
-}
 .letter-avatar.sm {
   width: 28px;
   height: 28px;
@@ -643,7 +619,7 @@ div.field {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 9px;
-  box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.16));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   padding: 8px 11px;
   font-size: 12px;
   line-height: 1.5;
@@ -651,9 +627,6 @@ div.field {
   word-break: break-all;
   pointer-events: none;
   animation: fadeUp 0.12s ease;
-}
-.bm-card a.bm-title:hover {
-  color: var(--accent-text);
 }
 .bm-domain {
   font: 400 10.5px var(--mono);

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BOUNDED_RUN="${HOME}/.pi/agent/extensions/trio-workflow/bounded-run.mjs"
+BOUNDED_RUN="$ROOT/scripts/lib/bounded-run.mjs"
 
 if [[ "${MARKHUB_E2E_BOUNDED:-}" != "1" ]]; then
   [[ -f "$BOUNDED_RUN" ]] || { echo "bounded-run missing: $BOUNDED_RUN" >&2; exit 1; }

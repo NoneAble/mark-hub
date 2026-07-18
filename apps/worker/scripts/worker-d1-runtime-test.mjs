@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomInt, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -12,10 +13,7 @@ import { waitForPortsReleased } from "./port-release.mjs";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKER_DIR = path.resolve(SCRIPT_DIR, "..");
 const REPO_DIR = path.resolve(WORKER_DIR, "../..");
-const BOUNDED_RUN = path.join(
-  os.homedir(),
-  ".pi/agent/extensions/trio-workflow/bounded-run.mjs",
-);
+const BOUNDED_RUN = path.join(REPO_DIR, "scripts/lib/bounded-run.mjs");
 const MIGRATIONS_DIR = path.join(WORKER_DIR, "migrations");
 const TEMP_ROOT = path.join(
   os.tmpdir(),
@@ -108,7 +106,7 @@ async function freePort() {
   throw new Error("could not preflight a unique high loopback port");
 }
 
-async function writeConfig(name, migrationsDir = MIGRATIONS_DIR, failPhase = "") {
+async function writeConfig(name, migrationsDir = MIGRATIONS_DIR, failPhase = "", extraVars = {}) {
   const configPath = path.join(TEMP_ROOT, `${name}.toml`);
   const vars = [
     `[vars]`,
@@ -118,10 +116,13 @@ async function writeConfig(name, migrationsDir = MIGRATIONS_DIR, failPhase = "")
     `MARKHUB_MASTER_KEY = ${JSON.stringify(MASTER_KEY)}`,
   ];
   if (failPhase) vars.push(`RESTORE_TEST_FAIL_PHASE = ${JSON.stringify(failPhase)}`);
+  for (const [key, value] of Object.entries(extraVars)) {
+    vars.push(`${key} = ${JSON.stringify(String(value))}`);
+  }
   const content = [
     `name = "markhub-runtime-${name}"`,
     `main = ${JSON.stringify(path.join(WORKER_DIR, "src/index.ts"))}`,
-    `compatibility_date = "2024-12-01"`,
+    `compatibility_date = "2026-07-01"`,
     `compatibility_flags = ["nodejs_compat"]`,
     ``,
     `[[d1_databases]]`,
@@ -197,10 +198,10 @@ async function databaseDump(stateDir) {
   return result.stdout;
 }
 
-async function startWorker(stateDir, configName, failPhase = "") {
+async function startWorker(stateDir, configName, failPhase = "", extraVars = {}, lifetimeMs = 120_000) {
   const port = await freePort();
   const inspectorPort = await freePort();
-  const configPath = await writeConfig(configName, MIGRATIONS_DIR, failPhase);
+  const configPath = await writeConfig(configName, MIGRATIONS_DIR, failPhase, extraVars);
   const child = spawnBounded(
     "pnpm",
     [
@@ -223,7 +224,7 @@ async function startWorker(stateDir, configName, failPhase = "") {
       "warn",
       "--show-interactive-dev-session=false",
     ],
-    { cwd: WORKER_DIR, timeoutMs: 120_000 },
+    { cwd: WORKER_DIR, timeoutMs: lifetimeMs },
   );
   const worker = { child, port, inspectorPort, logs: "", stopped: false };
   activeWorkers.add(worker);
@@ -287,6 +288,29 @@ async function stopWorker(worker) {
   }
 }
 
+/**
+ * node:http path for very long requests: global fetch (undici) enforces its own
+ * ~300s headers timeout regardless of AbortSignal, which kills 50k restores.
+ */
+function slowHttpRequest(url, { method, headers, body, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(url, { method, headers }, (res) => {
+      let data = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () =>
+        resolve({ status: res.statusCode || 0, text: data, headers: res.headers }),
+      );
+    });
+    req.setTimeout(timeoutMs, () =>
+      req.destroy(new Error(`request timed out after ${timeoutMs}ms`)),
+    );
+    req.on("error", reject);
+    if (body !== undefined && body !== null) req.write(body);
+    req.end();
+  });
+}
+
 async function request(
   worker,
   method,
@@ -300,7 +324,28 @@ async function request(
     requestHeaders["Content-Type"] = "application/json";
     requestBody = JSON.stringify(body);
   }
-  const response = await fetch(`http://127.0.0.1:${worker.port}${route}`, {
+  const url = `http://127.0.0.1:${worker.port}${route}`;
+  if (timeoutMs > 240_000) {
+    const slow = await slowHttpRequest(url, {
+      method,
+      headers: requestHeaders,
+      body: requestBody,
+      timeoutMs,
+    });
+    let slowJson = null;
+    try {
+      slowJson = JSON.parse(slow.text);
+    } catch {
+      // Export endpoints intentionally return CSV/HTML.
+    }
+    return {
+      status: slow.status,
+      text: slow.text,
+      json: slowJson,
+      headers: new Headers(slow.headers),
+    };
+  }
+  const response = await fetch(url, {
     method,
     headers: requestHeaders,
     body: requestBody,
@@ -622,7 +667,9 @@ async function testMergeDuplicateSelection(stateDir, configPath) {
 
 async function testAtomicFailures(stateDir, restoreContent) {
   const before = await databaseDump(stateDir);
-  for (const failPhase of ["insert", "swap"]) {
+  // "fts" verifies MH-RESTORE-002: an FTS rebuild failure rolls back the whole
+  // cutover instead of returning atomic:true with an unsearchable dataset.
+  for (const failPhase of ["insert", "swap", "fts"]) {
     const worker = await startWorker(stateDir, `restore-fail-${failPhase}`, failPhase);
     try {
       const token = await login(worker);
@@ -808,7 +855,9 @@ async function testMalformedImports(stateDir) {
   }
 }
 
-function largeRestoreContents(count = 460) {
+function largeRestoreContents(
+  count = Number(process.env.MARKHUB_LARGE_RESTORE_COUNT || 460),
+) {
   const bookmarks = Array.from({ length: count }, (_, index) => ({
     title: `Large ${index}`,
     url: `https://large.example/${index}`,
@@ -858,14 +907,18 @@ function largeRestoreContents(count = 460) {
 }
 
 async function testLargeAtomicRestores(stateDir, configPath) {
-  const worker = await startWorker(stateDir, "large-restores");
+  const contents = largeRestoreContents();
+  // Budgets scale with dataset size so the same test covers the default 460
+  // rows and the 50k release-gate run (MH-TEST-004).
+  const requestTimeout = Math.max(30_000, contents.count * 15);
+  const workerLifetime = Math.max(120_000, requestTimeout * 8);
+  const worker = await startWorker(stateDir, "large-restores", "", {}, workerLifetime);
   try {
     const token = await login(worker);
-    const contents = largeRestoreContents();
     for (const format of ["json", "csv", "html"]) {
       const imported = await request(worker, "POST", "/api/v1/backup/import", {
         token,
-        timeoutMs: 30_000,
+        timeoutMs: requestTimeout,
         body: {
           content: contents[format],
           format,
@@ -873,22 +926,94 @@ async function testLargeAtomicRestores(stateDir, configPath) {
           confirm_replace: true,
         },
       });
-      assert.equal(imported.status, 200, `${format}: ${imported.text}`);
+      assert.equal(imported.status, 200, `${format}: ${imported.text.slice(0, 400)}`);
       assert.equal(imported.json?.atomic, true, `${format}: restore was not atomic`);
       assert.equal(imported.json?.created, contents.count, `${format}: created count`);
       const exported = await request(worker, "GET", "/api/v1/backup/export?format=json", {
         token,
-        timeoutMs: 30_000,
+        timeoutMs: requestTimeout,
       });
-      assert.equal(exported.status, 200, `${format}: ${exported.text}`);
+      assert.equal(exported.status, 200, `${format}: ${exported.text.slice(0, 400)}`);
       assert.equal(exported.json.bookmarks.length, contents.count, `${format}: restored count`);
-      const urls = new Set(exported.json.bookmarks.map((bookmark) => bookmark.url));
-      assert.ok(urls.has("https://large.example/0"), `${format}: first bookmark missing`);
-      assert.ok(
-        urls.has(`https://large.example/${contents.count - 1}`),
-        `${format}: last bookmark missing`,
+      const byUrl = new Map(
+        exported.json.bookmarks.map((bookmark) => [bookmark.url, bookmark]),
+      );
+      const first = byUrl.get("https://large.example/0");
+      const last = byUrl.get(`https://large.example/${contents.count - 1}`);
+      assert.ok(first, `${format}: first bookmark missing`);
+      assert.ok(last, `${format}: last bookmark missing`);
+      // Fidelity spot checks: hierarchy, order, tags survive at every scale.
+      for (const [label, bookmark, index] of [
+        ["first", first, 0],
+        ["last", last, contents.count - 1],
+      ]) {
+        assert.equal(bookmark.title, `Large ${index}`, `${format}: ${label} title`);
+        // The generated Netscape HTML fixture carries no sort_order attribute.
+        if (format !== "html") {
+          assert.equal(Number(bookmark.sort_order), index, `${format}: ${label} sort_order`);
+        }
+        assert.deepEqual(
+          [...(bookmark.tags || [])].sort(),
+          ["large-one", "large-two"],
+          `${format}: ${label} tags`,
+        );
+        assert.deepEqual(
+          bookmark.folder_path,
+          ["Large"],
+          `${format}: ${label} folder hierarchy`,
+        );
+      }
+      // Checksum-style integrity: every expected URL exactly once.
+      assert.equal(byUrl.size, contents.count, `${format}: duplicate/missing URLs`);
+      // Restored rows must be immediately searchable (FTS is in the cutover).
+      const searched = await request(
+        worker,
+        "GET",
+        `/api/v1/bookmarks?q=Large&limit=1`,
+        { token, timeoutMs: requestTimeout },
+      );
+      assert.equal(searched.status, 200, `${format}: ${searched.text.slice(0, 200)}`);
+      assert.equal(
+        searched.json.total,
+        contents.count,
+        `${format}: FTS total after restore`,
       );
     }
+
+    // MH-EXPORT-002 acceptance: CSV/HTML exports embed the full portable
+    // metadata without throwing at scale, and the CSV round-trips losslessly.
+    const csvExport = await request(worker, "GET", "/api/v1/backup/export?format=csv", {
+      token,
+      timeoutMs: requestTimeout,
+    });
+    assert.equal(csvExport.status, 200, csvExport.text.slice(0, 300));
+    assert.ok(
+      csvExport.text.startsWith("# markhub-metadata:"),
+      "CSV export lost its portable metadata header",
+    );
+    const htmlExport = await request(worker, "GET", "/api/v1/backup/export?format=html", {
+      token,
+      timeoutMs: requestTimeout,
+    });
+    assert.equal(htmlExport.status, 200, htmlExport.text.slice(0, 300));
+    assert.match(
+      htmlExport.text,
+      /markhub-metadata/,
+      "HTML export lost its portable metadata block",
+    );
+    const reimport = await request(worker, "POST", "/api/v1/backup/import", {
+      token,
+      timeoutMs: requestTimeout,
+      body: {
+        content: csvExport.text,
+        format: "csv",
+        strategy: "replace_all",
+        confirm_replace: true,
+      },
+    });
+    assert.equal(reimport.status, 200, reimport.text.slice(0, 400));
+    assert.equal(reimport.json?.atomic, true, "CSV metadata reimport not atomic");
+    assert.equal(reimport.json?.created, contents.count, "CSV reimport count");
   } finally {
     await stopWorker(worker);
   }
@@ -896,6 +1021,213 @@ async function testLargeAtomicRestores(stateDir, configPath) {
     (await d1Execute(stateDir, configPath, "SELECT COUNT(*) AS count FROM restore_staging")).stdout,
   )[0];
   assert.deepEqual(staging, { count: 0 }, "large restores left staging rows behind");
+  const leases = d1Rows(
+    (await d1Execute(stateDir, configPath, "SELECT COUNT(*) AS count FROM restore_leases")).stdout,
+  )[0];
+  assert.deepEqual(leases, { count: 0 }, "large restores left lease rows behind");
+}
+
+/**
+ * MH-RESTORE-001 acceptance: deterministic double-restore barrier. Restore A
+ * stalls between staging and cutover; a second restore and normal CRUD writes
+ * must be rejected during the window, and the final dataset must equal exactly
+ * A's payload.
+ */
+async function testRestoreLeaseMutex(stateDir, configPath) {
+  const payload = (marker) =>
+    JSON.stringify({
+      format: "markhub-json",
+      version: 1,
+      folders: [],
+      tags: [],
+      bookmarks: [{ title: marker, url: `https://${marker}.example/only` }],
+    });
+  const worker = await startWorker(stateDir, "lease-mutex", "", {
+    RESTORE_TEST_STALL_MS: "4000",
+  });
+  try {
+    const token = await login(worker);
+    const keeper = await request(worker, "POST", "/api/v1/bookmarks", {
+      token,
+      body: { title: "pre-restore keeper", url: "https://keeper.example" },
+    });
+    assert.equal(keeper.status, 200, keeper.text);
+
+    const restoreA = request(worker, "POST", "/api/v1/backup/import", {
+      token,
+      timeoutMs: 30_000,
+      body: {
+        content: payload("restore-a"),
+        format: "json",
+        strategy: "replace_all",
+        confirm_replace: true,
+      },
+    });
+    // Enter A's stall window (staging for this tiny payload is near-instant).
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+
+    const restoreB = await request(worker, "POST", "/api/v1/backup/import", {
+      token,
+      body: {
+        content: payload("restore-b"),
+        format: "json",
+        strategy: "replace_all",
+        confirm_replace: true,
+      },
+    });
+    assert.equal(restoreB.status, 423, `concurrent restore: ${restoreB.text}`);
+    assert.equal(restoreB.json?.error?.code, "restore_in_progress", restoreB.text);
+
+    const crudDuring = await request(worker, "POST", "/api/v1/bookmarks", {
+      token,
+      body: { title: "sneaky mid-restore", url: "https://sneaky.example" },
+    });
+    assert.equal(crudDuring.status, 423, `mid-restore CRUD: ${crudDuring.text}`);
+
+    const doneA = await restoreA;
+    assert.equal(doneA.status, 200, `restore A: ${doneA.text}`);
+    assert.equal(doneA.json?.atomic, true, doneA.text);
+
+    const exported = await request(worker, "GET", "/api/v1/backup/export?format=json", {
+      token,
+    });
+    assert.equal(exported.status, 200, exported.text);
+    assert.deepEqual(
+      exported.json.bookmarks.map((bookmark) => bookmark.url).sort(),
+      ["https://restore-a.example/only"],
+      "final dataset must equal exactly restore A's payload",
+    );
+
+    const crudAfter = await request(worker, "POST", "/api/v1/bookmarks", {
+      token,
+      body: { title: "post-restore", url: "https://post-restore.example" },
+    });
+    assert.equal(crudAfter.status, 200, `post-restore CRUD: ${crudAfter.text}`);
+  } finally {
+    await stopWorker(worker);
+  }
+  const leases = d1Rows(
+    (await d1Execute(stateDir, configPath, "SELECT COUNT(*) AS count FROM restore_leases")).stdout,
+  )[0];
+  assert.deepEqual(leases, { count: 0 }, "lease rows leaked after restores");
+
+  // A foreign ACTIVE lease blocks writes and restores outright.
+  await d1Execute(
+    stateDir,
+    configPath,
+    `INSERT INTO restore_leases (user_id, restore_id, acquired_at, expires_at)
+     SELECT id, 'foreign-active', '2026-01-01T00:00:00.000Z', '2099-01-01T00:00:00.000Z' FROM users LIMIT 1`,
+  );
+  const blockedWorker = await startWorker(stateDir, "lease-blocked");
+  try {
+    const token = await login(blockedWorker);
+    const write = await request(blockedWorker, "POST", "/api/v1/bookmarks", {
+      token,
+      body: { title: "blocked", url: "https://blocked.example" },
+    });
+    assert.equal(write.status, 423, `foreign-lease CRUD: ${write.text}`);
+    const restore = await request(blockedWorker, "POST", "/api/v1/backup/import", {
+      token,
+      body: {
+        content: payload("blocked-restore"),
+        format: "json",
+        strategy: "replace_all",
+        confirm_replace: true,
+      },
+    });
+    assert.equal(restore.status, 423, `foreign-lease restore: ${restore.text}`);
+  } finally {
+    await stopWorker(blockedWorker);
+  }
+
+  // An EXPIRED lease must not lock the user out: CRUD passes, replace_all
+  // takes the lease over, and the stale row is gone afterwards.
+  await d1Execute(
+    stateDir,
+    configPath,
+    `UPDATE restore_leases SET expires_at = '2020-01-01T00:00:00.000Z' WHERE restore_id = 'foreign-active'`,
+  );
+  const takeoverWorker = await startWorker(stateDir, "lease-takeover");
+  try {
+    const token = await login(takeoverWorker);
+    const write = await request(takeoverWorker, "POST", "/api/v1/bookmarks", {
+      token,
+      body: { title: "post-expiry", url: "https://post-expiry.example" },
+    });
+    assert.equal(write.status, 200, `expired-lease CRUD: ${write.text}`);
+    const restore = await request(takeoverWorker, "POST", "/api/v1/backup/import", {
+      token,
+      timeoutMs: 30_000,
+      body: {
+        content: payload("takeover"),
+        format: "json",
+        strategy: "replace_all",
+        confirm_replace: true,
+      },
+    });
+    assert.equal(restore.status, 200, `expired-lease takeover: ${restore.text}`);
+  } finally {
+    await stopWorker(takeoverWorker);
+  }
+  const afterTakeover = d1Rows(
+    (await d1Execute(stateDir, configPath, "SELECT COUNT(*) AS count FROM restore_leases")).stdout,
+  )[0];
+  assert.deepEqual(afterTakeover, { count: 0 }, "expired lease takeover left rows");
+}
+
+/**
+ * MH-RESTORE-003 acceptance: the scheduled handler reclaims orphaned staging
+ * rows and expired leases, and never touches an active restore's staging.
+ */
+async function testScheduledRestoreGc(stateDir, configPath) {
+  const seedPath = path.join(TEMP_ROOT, "restore-gc.sql");
+  await fs.writeFile(
+    seedPath,
+    `INSERT INTO restore_staging (restore_id, user_id, kind, entity_key, payload, created_at)
+     SELECT 'gc-orphan-old', id, 'bookmark', 'k1', '{}', '2020-01-01T00:00:00.000Z' FROM users LIMIT 1;
+     INSERT INTO restore_staging (restore_id, user_id, kind, entity_key, payload, created_at)
+     SELECT 'gc-orphan-null', id, 'bookmark', 'k2', '{}', NULL FROM users LIMIT 1;
+     INSERT INTO restore_staging (restore_id, user_id, kind, entity_key, payload, created_at)
+     SELECT 'gc-fresh', id, 'bookmark', 'k3', '{}', strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM users LIMIT 1;
+     INSERT INTO restore_staging (restore_id, user_id, kind, entity_key, payload, created_at)
+     SELECT 'gc-leased-old', id, 'bookmark', 'k4', '{}', '2020-01-01T00:00:00.000Z' FROM users LIMIT 1;
+     INSERT INTO restore_leases (user_id, restore_id, acquired_at, expires_at)
+     SELECT id, 'gc-leased-old', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), '2099-01-01T00:00:00.000Z' FROM users LIMIT 1;`,
+    "utf8",
+  );
+  await d1Execute(stateDir, configPath, seedPath, true);
+  const worker = await startWorker(stateDir, "restore-gc");
+  try {
+    const response = await request(worker, "GET", "/__scheduled");
+    assert.equal(response.status, 200, response.text);
+  } finally {
+    await stopWorker(worker);
+  }
+  const remaining = d1Rows(
+    (
+      await d1Execute(
+        stateDir,
+        configPath,
+        "SELECT DISTINCT restore_id FROM restore_staging WHERE restore_id LIKE 'gc-%' ORDER BY restore_id",
+      )
+    ).stdout,
+  ).map((row) => row.restore_id);
+  assert.deepEqual(
+    remaining,
+    ["gc-fresh", "gc-leased-old"],
+    "scheduled GC must reclaim orphaned staging but keep fresh/leased rows",
+  );
+  // Cleanup so later phases see a quiescent table; drop the synthetic lease too.
+  await d1Execute(
+    stateDir,
+    configPath,
+    "DELETE FROM restore_staging WHERE restore_id LIKE 'gc-%'",
+  );
+  await d1Execute(
+    stateDir,
+    configPath,
+    "DELETE FROM restore_leases WHERE restore_id = 'gc-leased-old'",
+  );
 }
 
 async function seedAndTestCronGc(stateDir, configPath) {
@@ -1050,7 +1382,7 @@ async function cloneState(source, name) {
 
 async function main() {
   const focus = process.argv.find((argument) => argument.startsWith("--focus="));
-  if (focus && focus !== "--focus=kd31") {
+  if (focus && focus !== "--focus=kd31" && focus !== "--focus=large") {
     throw new Error(`unknown Worker runtime test focus: ${focus}`);
   }
   await fs.mkdir(TEMP_ROOT, { recursive: true });
@@ -1069,6 +1401,16 @@ async function main() {
     const kd31State = await cloneState(freshState, "kd31-merge");
     await testMergeDuplicateSelection(kd31State, freshConfig);
     console.log("worker-d1-runtime: PASS (KD-31 focused)");
+    return;
+  }
+
+  if (focus === "--focus=large") {
+    phase(
+      `large atomic JSON/CSV/HTML restores (count=${largeRestoreContents().count})`,
+    );
+    const largeOnlyState = await cloneState(freshState, "large-restores");
+    await testLargeAtomicRestores(largeOnlyState, freshConfig);
+    console.log("worker-d1-runtime: PASS (large-restore focused)");
     return;
   }
 
@@ -1115,8 +1457,12 @@ async function main() {
     await stopWorker(sourceWorker);
   }
 
-  phase("insert/swap D1 rollback with complete pre-state equality");
+  phase("insert/swap/fts D1 rollback with complete pre-state equality");
   await testAtomicFailures(sourceState, exports.json);
+
+  phase("restore lease mutex: barrier, mid-restore CRUD, expiry takeover");
+  const leaseState = await cloneState(freshState, "lease-mutex");
+  await testRestoreLeaseMutex(leaseState, freshConfig);
 
   phase("size-independent atomic JSON/CSV/HTML restores above 900 legacy statements");
   const largeRestoreState = await cloneState(freshState, "large-restores");
@@ -1143,6 +1489,9 @@ async function main() {
 
   phase("scheduled child-first stale-folder GC");
   await seedAndTestCronGc(destinations.json, freshConfig);
+
+  phase("scheduled restore staging/lease reclamation");
+  await testScheduledRestoreGc(destinations.json, freshConfig);
 
   console.log("worker-d1-runtime: PASS");
 }

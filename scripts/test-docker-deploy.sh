@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BOUND="$HOME/.pi/agent/extensions/trio-workflow/bounded-run.mjs"
+BOUND="$ROOT/scripts/lib/bounded-run.mjs"
 
 # A direct invocation self-wraps the complete Docker lifecycle in the repository's
 # process-group deadline helper. CI may set the marker when it supplies the same
@@ -90,7 +90,24 @@ cleanup() {
   set -e
   return "$cleanup_status"
 }
-trap cleanup EXIT
+
+# MH-TEST-002: a nonzero return from an EXIT trap does not change the script's
+# exit code, so the trap must capture the main-flow status, run cleanup, merge
+# the two (cleanup failure only overrides a zero status), and exit explicitly —
+# same pattern as scripts/e2e-smoke.sh.
+on_exit() {
+  local status=$?
+  local cleanup_status=0
+  # `cleanup || ...` keeps errexit suppressed even though cleanup re-enables
+  # `set -e` internally before returning its status.
+  cleanup || cleanup_status=$?
+  if [[ "$status" -eq 0 && "$cleanup_status" -ne 0 ]]; then
+    status=$cleanup_status
+  fi
+  trap - EXIT
+  exit "$status"
+}
+trap on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 

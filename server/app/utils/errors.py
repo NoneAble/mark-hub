@@ -10,7 +10,3 @@ def api_error(code: str, message: str, status_code: int = 400, details=None) -> 
 
 def not_found(message: str = "Not found") -> HTTPException:
     return api_error("not_found", message, status.HTTP_404_NOT_FOUND)
-
-
-def forbidden(message: str = "Forbidden") -> HTTPException:
-    return api_error("forbidden", message, status.HTTP_403_FORBIDDEN)

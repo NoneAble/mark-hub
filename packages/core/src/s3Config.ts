@@ -79,11 +79,3 @@ export function validateS3Config(
     },
   };
 }
-
-export function s3BackupObjectKey(keyPrefix: string, date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const stamp = `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}-${pad(date.getUTCHours())}-${pad(date.getUTCMinutes())}-${pad(date.getUTCSeconds())}`;
-  const prefix = keyPrefix.replace(/^\/+/, "");
-  const p = prefix && !prefix.endsWith("/") ? `${prefix}/` : prefix;
-  return `${p}markhub-backup-${stamp}.json`;
-}

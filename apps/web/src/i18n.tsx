@@ -92,6 +92,10 @@ const dict = {
     testConn: "测试连接",
     runNow: "立即备份",
     lastBackup: "上次备份",
+    keepBackups: "保留份数",
+    backupTime: "备份时间",
+    retentionPartialFailed: "备份已上传，但清理旧备份部分失败",
+    lastRetentionError: "上次清理错误",
     keepBlank: "已保存 — 留空保持不变",
   },
   en: {
@@ -185,6 +189,10 @@ const dict = {
     testConn: "Test connection",
     runNow: "Run now",
     lastBackup: "Last backup",
+    keepBackups: "Keep backups",
+    backupTime: "Backup time",
+    retentionPartialFailed: "Backup uploaded, but pruning old backups partially failed",
+    lastRetentionError: "Last retention error",
     keepBlank: "saved — leave blank to keep",
   },
 } as const;
@@ -194,7 +202,6 @@ export type MsgKey = keyof (typeof dict)["zh"];
 
 const Ctx = createContext<{
   lang: Lang;
-  setLang: (l: Lang) => void;
   t: (k: MsgKey) => string;
   toggleLang: () => void;
 } | null>(null);
@@ -211,7 +218,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     setLang(l);
   };
   const toggleLang = () => set(lang === "zh" ? "en" : "zh");
-  return <Ctx.Provider value={{ lang, setLang: set, t, toggleLang }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ lang, t, toggleLang }}>{children}</Ctx.Provider>;
 }
 
 export function useI18n() {

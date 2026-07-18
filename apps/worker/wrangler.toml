@@ -1,6 +1,6 @@
 name = "markhub"
 main = "src/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-07-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
@@ -13,6 +13,10 @@ migrations_dir = "migrations"
 directory = "../web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
+# API routes must reach the Worker even for browser navigation requests —
+# since compat date 2025-04-01 the SPA fallback would otherwise serve HTML for
+# navigate-mode /api/* requests (MH-CF-001).
+run_worker_first = ["/api/*"]
 
 [vars]
 DEFAULT_ADMIN_USERNAME = "admin"

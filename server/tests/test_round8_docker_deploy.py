@@ -122,7 +122,7 @@ def test_rqg_docker_deploy_001_postgres_profile_includes_database():
 def test_rqg_docker_deploy_001_docs_require_env_before_quickstart():
     """RQG-DOCKER-DEPLOY-001: README must establish secrets before compose up."""
     text = README.read_text(encoding="utf-8")
-    docker_section = text.split("## Docker", 1)[1].split("## Cloudflare", 1)[0]
+    docker_section = text.split("### Option 3", 1)[1].split("## Development", 1)[0]
     assert ".env" in docker_section or "generate-docker-env" in docker_section
     assert "JWT_SECRET" in docker_section
     assert "MARKHUB_MASTER_KEY" in docker_section
@@ -291,8 +291,9 @@ def test_rqg_f010_f011_owned_runtime_harness_is_checked_in():
     assert os.access(INTEGRATION_RUNNER, os.X_OK)
 
     runner = INTEGRATION_RUNNER.read_text(encoding="utf-8")
+    assert (ROOT / "scripts" / "lib" / "bounded-run.mjs").is_file()
     for evidence in (
-        "bounded-run.mjs",
+        "scripts/lib/bounded-run.mjs",
         "--timeout-ms 900000",
         "--project-name",
         "assert_unbound",

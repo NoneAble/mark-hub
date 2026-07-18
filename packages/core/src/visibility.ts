@@ -19,10 +19,6 @@ export function visibilityRank(v: Visibility | string): number {
   return RANK[asVisibility(v)] ?? 0;
 }
 
-export function minVisibility(a: Visibility, b: Visibility): Visibility {
-  return FROM_RANK[Math.min(visibilityRank(a), visibilityRank(b))]!;
-}
-
 /**
  * effective_visibility(node) = min_rank(self, ancestors).
  * Pass ancestors from root→parent order or any order — min is commutative.
@@ -37,16 +33,4 @@ export function effectiveVisibility(
     rank = Math.min(rank, visibilityRank(asVisibility(a)));
   }
   return FROM_RANK[rank]!;
-}
-
-export function isPublicNavVisible(
-  self: Visibility | string,
-  ancestors: Array<Visibility | string> = [],
-): boolean {
-  return effectiveVisibility(self, ancestors) === "public";
-}
-
-/** LiteMark visible=true → public; false → private */
-export function fromLiteMarkVisible(visible: boolean): Visibility {
-  return visible ? "public" : "private";
 }
