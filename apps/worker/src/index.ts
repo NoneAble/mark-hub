@@ -1461,6 +1461,7 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       });
       children.set(f.parent_id, list);
     }
+    const publicTags = await tagsForBookmarks(env, bookmarks.map((b) => b.id));
     const bmByFolder = new Map<string, any[]>();
     for (const b of bookmarks) {
       if (effectiveVisibility(asVisibility(b.visibility), anc(b.folder_id)) !== "public") continue;
@@ -1475,6 +1476,8 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
         icon: b.icon ?? null,
         visibility: b.visibility,
         sort_order: b.sort_order,
+        tags: (publicTags.get(b.id) || []).map((t) => t.name),
+        is_favorite: !!b.is_favorite,
       });
       bmByFolder.set(b.folder_id, list);
     }
@@ -2033,12 +2036,14 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
         .bind(user.id)
         .all<any>()
     ).results;
+    const homeTags = await tagsForBookmarks(env, bookmarks.map((b) => b.id));
     return json({
       folders: folders.map((f) => ({ ...f, is_system: !!f.is_system })),
       bookmarks: bookmarks.map((b) => ({
         ...b,
         is_favorite: !!b.is_favorite,
         is_archived: !!b.is_archived,
+        tags: (homeTags.get(b.id) || []).map((t) => t.name),
       })),
     });
   }

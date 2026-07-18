@@ -53,8 +53,16 @@ export function BookmarkCard({
   linkTitleOnly = true,
 }: Props) {
   const b = brandOf(bm.url);
+  // Show a tooltip with the full title only when the title is truncated.
+  const [tipOpen, setTipOpen] = useState(false);
+  const onTitleEnter = (e: React.MouseEvent<HTMLElement>) => {
+    const el = e.currentTarget;
+    setTipOpen(el.scrollWidth > el.clientWidth);
+  };
+  const onTitleLeave = () => setTipOpen(false);
   const body = (
     <>
+      {tipOpen ? <div className="bm-title-tooltip">{bm.title}</div> : null}
       <div className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
         <BmAvatar bm={bm} />
         <div className="grow" style={{ minWidth: 0 }}>
@@ -65,7 +73,8 @@ export function BookmarkCard({
                 href={bm.url}
                 target="_blank"
                 rel="noreferrer"
-                title={bm.title}
+                onMouseEnter={onTitleEnter}
+                onMouseLeave={onTitleLeave}
                 onClick={(e) => {
                   if (editMode) e.preventDefault();
                 }}
@@ -73,7 +82,7 @@ export function BookmarkCard({
                 {bm.title}
               </a>
             ) : (
-              <span className="bm-title grow" title={bm.title}>
+              <span className="bm-title grow" onMouseEnter={onTitleEnter} onMouseLeave={onTitleLeave}>
                 {bm.title}
               </span>
             )}
