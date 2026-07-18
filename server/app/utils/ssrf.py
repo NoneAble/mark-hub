@@ -156,12 +156,18 @@ async def safe_fetch(
                 raise ValueError(f"SSRF blocked: {reason}")
             pinned, original_host, _ips = pin_url_to_ip(current)
             req_headers = dict(base_headers)
+            extensions: dict = {}
             if not _is_literal_ip(original_host):
                 req_headers["Host"] = original_host
+                # TLS: verify certificate against the original hostname (SNI),
+                # not the pinned IP the socket connects to.
+                if current.lower().startswith("https"):
+                    extensions["sni_hostname"] = original_host
             last = await client.request(
                 method if last is None else "GET",
                 pinned,
                 headers=req_headers,
+                extensions=extensions,
             )
             if last.status_code in (301, 302, 303, 307, 308):
                 loc = last.headers.get("location")

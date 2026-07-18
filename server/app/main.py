@@ -19,6 +19,7 @@ from app.api import (
     backup,
     bookmarks,
     folders,
+    metadata,
     nav,
     shares,
     system,
@@ -166,6 +167,8 @@ app.include_router(tags.router, prefix=API)
 app.include_router(nav.router, prefix=API)
 app.include_router(backup.router, prefix=API)
 app.include_router(shares.router, prefix=API)
+app.include_router(metadata.router, prefix=API)
+app.include_router(metadata.icons_router)
 
 
 # Serve SPA if built assets are present (Docker / local static)

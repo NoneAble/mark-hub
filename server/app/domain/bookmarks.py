@@ -304,6 +304,7 @@ async def create_bookmark(
         url=url,
         url_normalized=normalize_url(url),
         description=data.get("description"),
+        icon=data.get("icon"),
         visibility=data.get("visibility")
         if data.get("visibility") in ("private", "unlisted", "public")
         else "private",
@@ -337,6 +338,8 @@ async def update_bookmark(
         b.url_normalized = normalize_url(b.url)
     if "description" in patch:
         b.description = patch["description"]
+    if "icon" in patch:
+        b.icon = patch["icon"]
     if "folder_id" in patch and patch["folder_id"]:
         await get_folder(db, user_id, patch["folder_id"])
         b.folder_id = patch["folder_id"]

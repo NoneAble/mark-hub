@@ -7,8 +7,7 @@ import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminBookmarks } from "./pages/admin/Bookmarks";
 import { AdminFolders } from "./pages/admin/Folders";
 import { AdminTags } from "./pages/admin/Tags";
-import { AdminBackup } from "./pages/admin/Backup";
-import { AdminAccount } from "./pages/admin/Account";
+import { AdminSettings } from "./pages/admin/Settings";
 import { AppLayout } from "./pages/app/AppLayout";
 import { Dashboard } from "./pages/app/Dashboard";
 
@@ -45,8 +44,10 @@ export function App() {
         <Route path="bookmarks" element={<AdminBookmarks />} />
         <Route path="folders" element={<AdminFolders />} />
         <Route path="tags" element={<AdminTags />} />
-        <Route path="backup" element={<AdminBackup />} />
-        <Route path="account" element={<AdminAccount />} />
+        <Route path="settings" element={<AdminSettings />} />
+        {/* Legacy routes → merged settings page */}
+        <Route path="backup" element={<AdminSettings initialTab="backup" />} />
+        <Route path="account" element={<AdminSettings initialTab="account" />} />
       </Route>
       <Route
         path="/app"

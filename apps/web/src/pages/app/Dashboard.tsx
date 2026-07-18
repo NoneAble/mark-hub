@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { useI18n } from "../../i18n";
 import { QrCodeModal } from "@markhub/ui";
@@ -12,6 +12,13 @@ import {
   useSearchHotkey,
   useToast,
 } from "../../components/ui";
+import { useConfirm } from "../../components/form";
+import {
+  BookmarkForm,
+  draftFromBookmark,
+  emptyDraft,
+  type TagLike,
+} from "../../components/BookmarkForm";
 import { visIcon } from "../../lib/colors";
 
 type Folder = {
@@ -27,9 +34,11 @@ type Bookmark = {
   title: string;
   url: string;
   description?: string | null;
+  icon?: string | null;
   visibility?: string;
   is_favorite?: boolean;
   is_archived?: boolean;
+  sort_order?: number;
   tags?: Array<string | { name: string }>;
 };
 
@@ -37,27 +46,25 @@ export function Dashboard() {
   const { api } = useAuth();
   const { t, lang } = useI18n();
   const { toast, showToast } = useToast();
+  const { confirm, confirmElement } = useConfirm();
   const [folders, setFolders] = useState<Folder[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [tags, setTags] = useState<TagLike[]>([]);
   const [selected, setSelected] = useState<string | "all" | "fav">("all");
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Bookmark | null>(null);
-  const [draft, setDraft] = useState({
-    title: "",
-    url: "",
-    description: "",
-    visibility: "private",
-    folder_id: "",
-    tags: "",
-  });
 
   async function reload() {
-    const home = await api.get<{ folders: Folder[]; bookmarks: Bookmark[] }>("/nav/home");
+    const [home, tg] = await Promise.all([
+      api.get<{ folders: Folder[]; bookmarks: Bookmark[] }>("/nav/home"),
+      api.get<{ items: TagLike[] }>("/tags"),
+    ]);
     setFolders(home.folders);
     setBookmarks(home.bookmarks as Bookmark[]);
+    setTags(tg.items);
   }
 
   useEffect(() => {
@@ -89,7 +96,7 @@ export function Dashboard() {
         out.push({
           id: f.id,
           name: f.name,
-          icon: f.is_system ? "⬇" : pad > 0 ? "·" : "📁",
+          icon: f.is_system ? "⬇" : pad > 0 ? "·" : "▣",
           pad,
           count: counts.get(f.id) || 0,
           vis: f.visibility,
@@ -124,76 +131,15 @@ export function Dashboard() {
       if (selected !== "all" && selected !== "fav" && b.folder_id !== selected) return false;
       if (!q.trim()) return true;
       const qq = q.toLowerCase();
-      const tags = (b.tags || []).map((x) => (typeof x === "string" ? x : x.name)).join(" ");
+      const tagNames = (b.tags || []).map((x) => (typeof x === "string" ? x : x.name)).join(" ");
       return (
         b.title.toLowerCase().includes(qq) ||
         b.url.toLowerCase().includes(qq) ||
         (b.description || "").toLowerCase().includes(qq) ||
-        tags.toLowerCase().includes(qq)
+        tagNames.toLowerCase().includes(qq)
       );
     });
   }, [bookmarks, selected, q]);
-
-  function openAdd() {
-    setDraft({
-      title: "",
-      url: "",
-      description: "",
-      visibility: "private",
-      folder_id: selected !== "all" && selected !== "fav" ? selected : folders.find((f) => f.is_system)?.id || folders[0]?.id || "",
-      tags: "",
-    });
-    setAdding(true);
-  }
-
-  function openEdit(b: Bookmark) {
-    setEditing(b);
-    setDraft({
-      title: b.title,
-      url: b.url,
-      description: b.description || "",
-      visibility: b.visibility || "private",
-      folder_id: b.folder_id,
-      tags: (b.tags || []).map((x) => (typeof x === "string" ? x : x.name)).join(", "),
-    });
-  }
-
-  async function saveAdd(e: FormEvent) {
-    e.preventDefault();
-    await api.post("/bookmarks", {
-      title: draft.title,
-      url: draft.url,
-      description: draft.description,
-      visibility: draft.visibility,
-      folder_id: draft.folder_id || undefined,
-      tags: draft.tags
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    });
-    setAdding(false);
-    showToast(t("addBm"));
-    await reload();
-  }
-
-  async function saveEdit(e: FormEvent) {
-    e.preventDefault();
-    if (!editing) return;
-    await api.patch(`/bookmarks/${editing.id}`, {
-      title: draft.title,
-      url: draft.url,
-      description: draft.description,
-      visibility: draft.visibility,
-      folder_id: draft.folder_id || undefined,
-      tags: draft.tags
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    });
-    setEditing(null);
-    showToast(t("save"));
-    await reload();
-  }
 
   async function toggleFav(b: Bookmark) {
     await api.patch(`/bookmarks/${b.id}`, { is_favorite: !b.is_favorite });
@@ -201,65 +147,30 @@ export function Dashboard() {
   }
 
   async function deleteBm(b: Bookmark) {
-    if (!confirm(t("delete") + "?")) return;
+    const ok = await confirm({ message: t("confirmDeleteBm"), danger: true });
+    if (!ok) return;
     await api.delete(`/bookmarks/${b.id}`);
-    showToast(t("delete"));
+    showToast(t("delete") + " ✓");
     await reload();
   }
 
   async function shareFolder() {
     if (selected === "all" || selected === "fav") {
-      showToast(lang === "zh" ? "请先选择一个文件夹" : "Select a folder first");
+      showToast(t("selectFolderFirst"));
       return;
     }
     try {
       const r = await api.post<any>("/shares", { folder_id: selected });
       const url = `${window.location.origin}/s/${r.token || r.id}`;
       await navigator.clipboard.writeText(url);
-      showToast(lang === "zh" ? "分享链接已复制" : "Share link copied");
+      showToast(t("shareCopied"));
     } catch (err) {
       showToast(err instanceof Error ? err.message : t("failed"));
     }
   }
 
-  const formFields = (
-    <>
-      <label className="field">
-        {t("title")}
-        <input className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required />
-      </label>
-      <label className="field">
-        {t("url")}
-        <input className="input input-mono" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} required />
-      </label>
-      <label className="field">
-        {t("description")}
-        <input className="input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-      </label>
-      <label className="field">
-        {t("folders")}
-        <select className="input" value={draft.folder_id} onChange={(e) => setDraft({ ...draft, folder_id: e.target.value })}>
-          {folders.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        {t("visibility")}
-        <select className="input" value={draft.visibility} onChange={(e) => setDraft({ ...draft, visibility: e.target.value })}>
-          <option value="public">{t("public")}</option>
-          <option value="unlisted">{t("unlisted")}</option>
-          <option value="private">{t("private")}</option>
-        </select>
-      </label>
-      <label className="field">
-        {t("tagsField")}
-        <input className="input" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
-      </label>
-    </>
-  );
+  const defaultFolderId =
+    selected !== "all" && selected !== "fav" ? selected : "";
 
   return (
     <div className="dashboard-grid">
@@ -293,7 +204,7 @@ export function Dashboard() {
         </button>
       </aside>
 
-      {/* Mobile: horizontal folder chips (prototype narrow layout) */}
+      {/* Mobile: horizontal category chips (prototype narrow layout) */}
       <div
         className="scroll-chips dashboard-tree-mobile"
         role="navigation"
@@ -330,13 +241,13 @@ export function Dashboard() {
             onActivate={() => setSearchOpen(true)}
           />
           <span className="muted-sm" style={{ flex: "0 0 auto", whiteSpace: "nowrap" }}>
-            {shown.length} {lang === "zh" ? "项" : "items"}
+            {shown.length} {t("itemsUnit")}
           </span>
           <div className="dashboard-toolbar-actions">
             <button type="button" className="btn btn-soft topbar-btn" onClick={() => void shareFolder()}>
               ⇗ {t("share")}
             </button>
-            <button type="button" className="btn btn-primary topbar-btn" onClick={openAdd}>
+            <button type="button" className="btn btn-primary topbar-btn" onClick={() => setAdding(true)}>
               + {t("addBm")}
             </button>
           </div>
@@ -349,7 +260,7 @@ export function Dashboard() {
                 key={b.id}
                 bm={b}
                 onFav={() => void toggleFav(b)}
-                onEdit={() => openEdit(b)}
+                onEdit={() => setEditing(b)}
                 onQr={() => setQrUrl(b.url)}
                 onDelete={() => void deleteBm(b)}
               />
@@ -362,6 +273,7 @@ export function Dashboard() {
 
       <Modal
         open={adding}
+        wide
         title={t("newBm")}
         onClose={() => setAdding(false)}
         footer={
@@ -375,13 +287,25 @@ export function Dashboard() {
           </>
         }
       >
-        <form id="dash-add" className="stack" onSubmit={(e) => void saveAdd(e)}>
-          {formFields}
-        </form>
+        <BookmarkForm
+          api={api}
+          formId="dash-add"
+          initial={emptyDraft(defaultFolderId)}
+          folders={folders}
+          tags={tags}
+          showArchived={false}
+          onNotice={showToast}
+          onSaved={() => {
+            setAdding(false);
+            showToast(t("addBm") + " ✓");
+            void reload();
+          }}
+        />
       </Modal>
 
       <Modal
         open={!!editing}
+        wide
         title={t("editBm")}
         onClose={() => setEditing(null)}
         footer={
@@ -395,9 +319,24 @@ export function Dashboard() {
           </>
         }
       >
-        <form id="dash-edit" className="stack" onSubmit={(e) => void saveEdit(e)}>
-          {formFields}
-        </form>
+        {editing ? (
+          <BookmarkForm
+            api={api}
+            formId="dash-edit"
+            key={editing.id}
+            initial={draftFromBookmark(editing)}
+            editingId={editing.id}
+            folders={folders}
+            tags={tags}
+            showArchived
+            onNotice={showToast}
+            onSaved={() => {
+              setEditing(null);
+              showToast(t("save") + " ✓");
+              void reload();
+            }}
+          />
+        ) : null}
       </Modal>
 
       <SearchModal
@@ -411,6 +350,7 @@ export function Dashboard() {
       />
 
       <QrCodeModal url={qrUrl || ""} open={!!qrUrl} onClose={() => setQrUrl(null)} />
+      {confirmElement}
       <Toast message={toast} />
     </div>
   );

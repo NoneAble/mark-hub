@@ -991,6 +991,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/metadata:
+    post:
+      tags:
+      - metadata
+      summary: Fetch Metadata
+      operationId: fetch_metadata_api_v1_metadata_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetadataBody'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/icons/favicons/{name}:
+    get:
+      tags:
+      - metadata
+      summary: Get Favicon
+      operationId: get_favicon_api_icons_favicons__name__get
+      parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Name
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /{full_path}:
     get:
       summary: Spa Fallback
@@ -1101,6 +1152,11 @@ components:
           - type: string
           - type: 'null'
           title: Description
+        icon:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Icon
         visibility:
           anyOf:
           - type: string
@@ -1153,6 +1209,11 @@ components:
           - type: string
           - type: 'null'
           title: Description
+        icon:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Icon
         visibility:
           anyOf:
           - type: string
@@ -1304,6 +1365,15 @@ components:
       - username
       - password
       title: LoginBody
+    MetadataBody:
+      properties:
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - url
+      title: MetadataBody
     ShareCreate:
       properties:
         target_type:

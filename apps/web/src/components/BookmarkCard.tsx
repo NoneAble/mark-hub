@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { TagList, LetterAvatar } from "./ui";
 import { brandOf, visIcon } from "../lib/colors";
 
@@ -6,10 +7,30 @@ export type BmLike = {
   title: string;
   url: string;
   description?: string | null;
+  icon?: string | null;
   visibility?: string;
   is_favorite?: boolean;
   tags?: Array<string | { name: string }> | null;
 };
+
+function BmAvatar({ bm }: { bm: BmLike }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [bm.icon]);
+  if (bm.icon && !broken) {
+    return (
+      <img
+        className="bm-favicon"
+        src={bm.icon}
+        alt=""
+        width={32}
+        height={32}
+        loading="lazy"
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  return <LetterAvatar url={bm.url} />;
+}
 
 type Props = {
   bm: BmLike;
@@ -35,7 +56,7 @@ export function BookmarkCard({
   const body = (
     <>
       <div className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
-        <LetterAvatar url={bm.url} />
+        <BmAvatar bm={bm} />
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row" style={{ gap: 5, flexWrap: "nowrap" }}>
             {linkTitleOnly ? (
@@ -107,8 +128,9 @@ export function BookmarkCard({
                   e.stopPropagation();
                   onQr();
                 }}
+                style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3 }}
               >
-                ▦
+                QR
               </button>
             ) : null}
             {onDelete ? (

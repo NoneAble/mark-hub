@@ -30,6 +30,7 @@ def bookmark_dict(b: Bookmark, tags: list[Tag] | None = None) -> dict[str, Any]:
         "url": b.url,
         "url_normalized": b.url_normalized,
         "description": b.description,
+        "icon": b.icon,
         "visibility": b.visibility,
         "is_favorite": b.is_favorite,
         "is_archived": b.is_archived,

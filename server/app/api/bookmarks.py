@@ -19,6 +19,7 @@ class BookmarkCreate(BaseModel):
     url: str
     folder_id: str | None = None
     description: str | None = None
+    icon: str | None = None
     visibility: str | None = "private"
     is_favorite: bool = False
     is_archived: bool = False
@@ -31,6 +32,7 @@ class BookmarkPatch(BaseModel):
     url: str | None = None
     folder_id: str | None = None
     description: str | None = None
+    icon: str | None = None
     visibility: str | None = None
     is_favorite: bool | None = None
     is_archived: bool | None = None

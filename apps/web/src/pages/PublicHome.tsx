@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../i18n";
@@ -12,6 +12,14 @@ import {
   useSearchHotkey,
   useToast,
 } from "../components/ui";
+import { useConfirm } from "../components/form";
+import {
+  BookmarkForm,
+  draftFromBookmark,
+  emptyDraft,
+  type FolderLike,
+  type TagLike,
+} from "../components/BookmarkForm";
 import { currentTheme, initThemeFromStorage, toggleTheme } from "../lib/theme";
 
 type NavNode = {
@@ -21,7 +29,11 @@ type NavNode = {
   title?: string;
   url?: string;
   description?: string | null;
+  icon?: string | null;
   visibility?: string;
+  folder_id?: string;
+  sort_order?: number;
+  is_archived?: boolean;
   tags?: Array<string | { name: string }>;
   children?: NavNode[];
 };
@@ -71,32 +83,111 @@ function filterTree(nodes: NavNode[], qq: string): NavNode[] {
     .filter(Boolean) as NavNode[];
 }
 
+type HomeFolder = FolderLike & { visibility?: string; sort_order?: number };
+type HomeBookmark = {
+  id: string;
+  folder_id: string;
+  title: string;
+  url: string;
+  description?: string | null;
+  icon?: string | null;
+  visibility?: string;
+  is_favorite?: boolean;
+  is_archived?: boolean;
+  sort_order?: number;
+  tags?: Array<string | { name: string }>;
+};
+
+/** Build a public-nav-shaped tree from the authenticated flat /nav/home payload. */
+function buildTreeFromHome(folders: HomeFolder[], bookmarks: HomeBookmark[]): NavNode[] {
+  const nodeById = new Map<string, NavNode>();
+  for (const f of folders) {
+    nodeById.set(f.id, {
+      type: "folder",
+      id: f.id,
+      name: f.name,
+      visibility: f.visibility,
+      sort_order: f.sort_order ?? 0,
+      children: [],
+    });
+  }
+  const roots: NavNode[] = [];
+  for (const f of folders) {
+    const node = nodeById.get(f.id)!;
+    const parent = f.parent_id ? nodeById.get(f.parent_id) : undefined;
+    if (parent) parent.children!.push(node);
+    else roots.push(node);
+  }
+  for (const b of bookmarks) {
+    if (b.is_archived) continue;
+    const parent = nodeById.get(b.folder_id);
+    const node: NavNode = {
+      type: "bookmark",
+      id: b.id,
+      title: b.title,
+      url: b.url,
+      description: b.description,
+      icon: b.icon,
+      visibility: b.visibility,
+      folder_id: b.folder_id,
+      sort_order: b.sort_order ?? 0,
+      tags: b.tags,
+    };
+    if (parent) parent.children!.push(node);
+  }
+  const sortRec = (nodes: NavNode[]) => {
+    nodes.sort(
+      (a, b) =>
+        (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+        (a.name || a.title || "").localeCompare(b.name || b.title || ""),
+    );
+    for (const n of nodes) if (n.children) sortRec(n.children);
+  };
+  sortRec(roots);
+  return roots;
+}
+
 export function PublicHome() {
   const { api, token } = useAuth();
   const { t, lang, toggleLang } = useI18n();
   const { toast, showToast } = useToast();
+  const { confirm, confirmElement } = useConfirm();
   const [tree, setTree] = useState<NavNode[]>([]);
+  const [folders, setFolders] = useState<HomeFolder[]>([]);
+  const [tags, setTags] = useState<TagLike[]>([]);
   const [editMode, setEditMode] = useState(false);
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<string | "all">("all");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [editing, setEditing] = useState<NavNode | null>(null);
-  const [draft, setDraft] = useState({ title: "", url: "", description: "" });
   const [adding, setAdding] = useState(false);
 
   async function reload() {
-    const r = await api.get<{ tree: NavNode[] }>("/nav/public");
-    setTree(r.tree || []);
+    if (token) {
+      // Logged in: full data incl. private/unlisted bookmarks
+      const [home, tg] = await Promise.all([
+        api.get<{ folders: HomeFolder[]; bookmarks: HomeBookmark[] }>("/nav/home"),
+        api.get<{ items: TagLike[] }>("/tags"),
+      ]);
+      setFolders(home.folders);
+      setTags(tg.items);
+      setTree(buildTreeFromHome(home.folders, home.bookmarks));
+    } else {
+      const r = await api.get<{ tree: NavNode[] }>("/nav/public");
+      setTree(r.tree || []);
+      setFolders([]);
+      setTags([]);
+    }
   }
 
   useEffect(() => {
     initThemeFromStorage();
     setTheme(currentTheme());
     void reload();
-  }, [api]);
+  }, [api, token]);
 
-  const folders = useMemo(() => tree.filter((n) => n.type === "folder"), [tree]);
+  const folderNodes = useMemo(() => tree.filter((n) => n.type === "folder"), [tree]);
   const allTags = useMemo(() => collectTags(tree), [tree]);
 
   const searchItems = useMemo(
@@ -134,7 +225,6 @@ export function PublicHome() {
   }, [tree, selected, q]);
 
   const groups = useMemo(() => {
-    // When viewing all: each top-level folder's direct bookmarks + each nested folder as a group
     if (selected === "all") {
       return filtered
         .filter((n) => n.type === "folder")
@@ -165,42 +255,11 @@ export function PublicHome() {
     return out;
   }, [filtered, selected, t]);
 
-  function openEdit(bm: NavNode) {
-    setEditing(bm);
-    setDraft({
-      title: bm.title || "",
-      url: bm.url || "",
-      description: bm.description || "",
-    });
-  }
-
-  async function saveEdit(e: FormEvent) {
-    e.preventDefault();
-    if (!editing) return;
-    await api.patch(`/bookmarks/${editing.id}`, draft);
-    setEditing(null);
-    showToast(t("save"));
-    await reload();
-  }
-
   async function deleteBm(id: string) {
-    if (!confirm(t("delete") + "?")) return;
+    const ok = await confirm({ message: t("confirmDeleteBm"), danger: true });
+    if (!ok) return;
     await api.delete(`/bookmarks/${id}`);
-    showToast(t("delete"));
-    await reload();
-  }
-
-  async function addBookmark(e: FormEvent) {
-    e.preventDefault();
-    await api.post("/bookmarks", {
-      title: draft.title,
-      url: draft.url,
-      description: draft.description,
-      visibility: "public",
-    });
-    setAdding(false);
-    setDraft({ title: "", url: "", description: "" });
-    showToast(t("addBm"));
+    showToast(t("delete") + " ✓");
     await reload();
   }
 
@@ -209,11 +268,11 @@ export function PublicHome() {
       {
         id: "all",
         name: t("allFolders"),
-        count: folders.reduce((n, f) => n + countBookmarks(f), 0),
+        count: folderNodes.reduce((n, f) => n + countBookmarks(f), 0),
         pad: 0,
       },
     ];
-    for (const f of folders) {
+    for (const f of folderNodes) {
       items.push({ id: f.id, name: f.name || "", count: countBookmarks(f), pad: 0 });
       for (const c of f.children || []) {
         if (c.type === "folder") {
@@ -222,7 +281,9 @@ export function PublicHome() {
       }
     }
     return items;
-  }, [folders, t]);
+  }, [folderNodes, t]);
+
+  const defaultFolderId = selected !== "all" ? selected : "";
 
   return (
     <div className="public-page">
@@ -245,10 +306,7 @@ export function PublicHome() {
             <button
               type="button"
               className="btn btn-primary topbar-btn"
-              onClick={() => {
-                setDraft({ title: "", url: "", description: "" });
-                setAdding(true);
-              }}
+              onClick={() => setAdding(true)}
             >
               + {t("addBm")}
             </button>
@@ -262,11 +320,7 @@ export function PublicHome() {
               {editMode ? t("exitEdit") : t("editMode")}
             </button>
           ) : null}
-          <button
-            type="button"
-            className="btn topbar-btn"
-            onClick={toggleLang}
-          >
+          <button type="button" className="btn topbar-btn" onClick={toggleLang}>
             {lang === "zh" ? "EN" : "中"}
           </button>
           <button
@@ -288,7 +342,7 @@ export function PublicHome() {
         </div>
       </header>
 
-      {/* Mobile: horizontal folder chips (prototype narrow layout) */}
+      {/* Mobile: horizontal category chips (prototype narrow layout) */}
       <div className="scroll-chips public-folder-chips" role="navigation" aria-label={t("folders")}>
         {folderNav.map((n) => (
           <button
@@ -375,7 +429,7 @@ export function PublicHome() {
                 <div className="row" style={{ gap: 10, marginBottom: 14, alignItems: "baseline" }}>
                   <span style={{ fontSize: 16, fontWeight: 700 }}>{g.name}</span>
                   <span className="muted-sm">
-                    {g.items.length} {lang === "zh" ? "项" : "items"}
+                    {g.items.length} {t("itemsUnit")}
                   </span>
                 </div>
                 <div className="grid-cards">
@@ -387,12 +441,13 @@ export function PublicHome() {
                         title: bm.title || "",
                         url: bm.url || "",
                         description: bm.description,
+                        icon: bm.icon,
                         visibility: bm.visibility,
                         tags: bm.tags,
                       }}
                       editMode={editMode && !!token}
                       linkTitleOnly={false}
-                      onEdit={editMode && token ? () => openEdit(bm) : undefined}
+                      onEdit={editMode && token ? () => setEditing(bm) : undefined}
                       onDelete={editMode && token ? () => void deleteBm(bm.id) : undefined}
                     />
                   ))}
@@ -403,9 +458,7 @@ export function PublicHome() {
         </div>
       </div>
 
-      <footer className="foot-note">
-        MarkHub · {t("footNote")}
-      </footer>
+      <footer className="foot-note">MarkHub · {t("footNote")}</footer>
 
       <SearchModal
         open={searchOpen}
@@ -419,6 +472,7 @@ export function PublicHome() {
 
       <Modal
         open={!!editing}
+        wide
         title={t("editBm")}
         onClose={() => setEditing(null)}
         footer={
@@ -426,42 +480,34 @@ export function PublicHome() {
             <button type="button" className="btn" onClick={() => setEditing(null)}>
               {t("cancel")}
             </button>
-            <button type="submit" form="edit-bm-form" className="btn btn-primary">
+            <button type="submit" form="public-edit-bm" className="btn btn-primary">
               {t("save")}
             </button>
           </>
         }
       >
-        <form id="edit-bm-form" className="stack" onSubmit={(e) => void saveEdit(e)}>
-          <label className="field">
-            {t("title")}
-            <input
-              className="input"
-              value={draft.title}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            {t("url")}
-            <input
-              className="input input-mono"
-              value={draft.url}
-              onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-            />
-          </label>
-          <label className="field">
-            {t("description")}
-            <input
-              className="input"
-              value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            />
-          </label>
-        </form>
+        {editing ? (
+          <BookmarkForm
+            api={api}
+            formId="public-edit-bm"
+            key={editing.id}
+            initial={draftFromBookmark({ ...editing, folder_id: editing.folder_id })}
+            editingId={editing.id}
+            folders={folders}
+            tags={tags}
+            onNotice={showToast}
+            onSaved={() => {
+              setEditing(null);
+              showToast(t("save") + " ✓");
+              void reload();
+            }}
+          />
+        ) : null}
       </Modal>
 
       <Modal
         open={adding}
+        wide
         title={t("newBm")}
         onClose={() => setAdding(false)}
         footer={
@@ -469,42 +515,30 @@ export function PublicHome() {
             <button type="button" className="btn" onClick={() => setAdding(false)}>
               {t("cancel")}
             </button>
-            <button type="submit" form="add-bm-form" className="btn btn-primary">
+            <button type="submit" form="public-add-bm" className="btn btn-primary">
               {t("save")}
             </button>
           </>
         }
       >
-        <form id="add-bm-form" className="stack" onSubmit={(e) => void addBookmark(e)}>
-          <label className="field">
-            {t("title")}
-            <input
-              className="input"
-              value={draft.title}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-              required
-            />
-          </label>
-          <label className="field">
-            {t("url")}
-            <input
-              className="input input-mono"
-              value={draft.url}
-              onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-              required
-            />
-          </label>
-          <label className="field">
-            {t("description")}
-            <input
-              className="input"
-              value={draft.description}
-              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            />
-          </label>
-        </form>
+        {adding ? (
+          <BookmarkForm
+            api={api}
+            formId="public-add-bm"
+            initial={{ ...emptyDraft(defaultFolderId), visibility: "public" }}
+            folders={folders}
+            tags={tags}
+            onNotice={showToast}
+            onSaved={() => {
+              setAdding(false);
+              showToast(t("addBm") + " ✓");
+              void reload();
+            }}
+          />
+        ) : null}
       </Modal>
 
+      {confirmElement}
       <Toast message={toast} />
     </div>
   );

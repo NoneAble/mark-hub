@@ -74,6 +74,7 @@ class Bookmark(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
     url_normalized: Mapped[str] = mapped_column(Text, nullable=False, default="")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    icon: Mapped[str | None] = mapped_column(Text, nullable=True)
     visibility: Mapped[str] = mapped_column(String(16), default="private")
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)

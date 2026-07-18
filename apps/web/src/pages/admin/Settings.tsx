@@ -1,0 +1,548 @@
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useAuth } from "../../lib/auth";
+import { useI18n } from "../../i18n";
+import { PageHeader, Toast, useToast } from "../../components/ui";
+import { Switch, useConfirm } from "../../components/form";
+
+type ImportStrategy = "skip_duplicate" | "merge" | "replace_all";
+type TabId = "account" | "backup" | "webdav" | "s3";
+
+function detectFormat(name: string, text: string): "json" | "csv" | "html" {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".csv")) return "csv";
+  if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
+  if (lower.endsWith(".json")) return "json";
+  const trimmed = text.trim();
+  if (trimmed.startsWith("<!") || /<DL|<H1|<A\s+HREF/i.test(trimmed)) return "html";
+  if (trimmed.includes(",") && /title.*url|url.*title/i.test(trimmed.split("\n")[0] || "")) {
+    return "csv";
+  }
+  return "json";
+}
+
+export function AdminSettings({ initialTab }: { initialTab?: TabId }) {
+  const { t } = useI18n();
+  const [params] = useSearchParams();
+  const urlTab = params.get("tab") as TabId | null;
+  const force = params.get("force") === "1";
+  const [tab, setTab] = useState<TabId>(initialTab || urlTab || (force ? "account" : "account"));
+
+  const tabs: [TabId, string][] = [
+    ["account", t("accountTab")],
+    ["backup", t("backupTab")],
+    ["webdav", t("webdavTab")],
+    ["s3", t("s3Tab")],
+  ];
+
+  return (
+    <div style={{ maxWidth: 860 }}>
+      <PageHeader title={t("settings")} />
+      <div className="tabs">
+        {tabs.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`tab${tab === id ? " active" : ""}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "account" ? <AccountSection /> : null}
+      {tab === "backup" ? <BackupSection /> : null}
+      {tab === "webdav" ? <WebdavSection /> : null}
+      {tab === "s3" ? <S3Section /> : null}
+    </div>
+  );
+}
+
+/* ---------- account ---------- */
+
+function AccountSection() {
+  const { api, user, setUser } = useAuth();
+  const { t } = useI18n();
+  const [params] = useSearchParams();
+  const force = params.get("force") === "1" || user?.must_change_password;
+  const [current_password, setCurrent] = useState("");
+  const [new_username, setUsername] = useState(user?.username || "");
+  const [new_password, setPassword] = useState("");
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (user?.username) setUsername(user.username);
+  }, [user?.username]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      const r = await api.put<{ id: string; username: string; must_change_password: boolean }>(
+        "/auth/credentials",
+        { current_password, new_username, new_password: new_password || undefined },
+      );
+      setUser(r);
+      setMsg("Updated");
+      setCurrent("");
+      setPassword("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("failed"));
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      {force ? (
+        <div
+          className="card"
+          style={{ marginBottom: 14, borderColor: "var(--warn)", background: "rgba(217,119,6,.06)" }}
+        >
+          You must change the default password before continuing. {t("mustChangePassword")}
+        </div>
+      ) : null}
+      <form className="card stack" onSubmit={(e) => void onSubmit(e)}>
+        <div className="settings-section-title">{t("account")}</div>
+        <label className="field">
+          Current password
+          <input
+            className="input"
+            type="password"
+            value={current_password}
+            onChange={(e) => setCurrent(e.target.value)}
+            required
+          />
+        </label>
+        <label className="field">
+          Username
+          <input
+            className="input"
+            value={new_username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          New password
+          <input
+            className="input"
+            type="password"
+            value={new_password}
+            onChange={(e) => setPassword(e.target.value)}
+            required={!!force}
+          />
+        </label>
+        {error ? <div className="error">{error}</div> : null}
+        {msg ? <div className="success">{msg}</div> : null}
+        <div>
+          <button className="btn btn-primary" type="submit">
+            Update credentials
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/* ---------- file backup / import ---------- */
+
+function BackupSection() {
+  const { api } = useAuth();
+  const { t } = useI18n();
+  const { toast, showToast } = useToast();
+  const { confirm, confirmElement } = useConfirm();
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [importText, setImportText] = useState("");
+  const [importFormat, setImportFormat] = useState<"json" | "csv" | "html">("json");
+  const [strategy, setStrategy] = useState<ImportStrategy>("skip_duplicate");
+  const [fileName, setFileName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function exportFmt(format: string) {
+    if (format === "json") {
+      const data = await api.get("/backup/export?format=json");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      download(blob, "markhub.json");
+    } else {
+      const res = await fetch(`/api/v1/backup/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("markhub_token")}` },
+      });
+      const blob = await res.blob();
+      download(blob, `markhub.${format}`);
+    }
+    showToast(`${t("export")} ✓`);
+  }
+
+  function download(blob: Blob, name: string) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function onFile(file: File | null) {
+    if (!file) return;
+    const text = await file.text();
+    setImportText(text);
+    setFileName(file.name);
+    setImportFormat(detectFormat(file.name, text));
+    setMsg(`Loaded ${file.name} (${text.length} bytes)`);
+    setErr("");
+  }
+
+  async function doImport() {
+    setErr("");
+    setMsg("");
+    if (!importText.trim()) {
+      setErr("Paste content or choose a file first");
+      return;
+    }
+    if (strategy === "replace_all") {
+      const ok = await confirm({
+        message:
+          "Replace ALL existing bookmarks with this import? Soft-deleted rows can be recovered for 30 days.",
+        danger: true,
+        confirmLabel: t("import"),
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      const r = await api.post<{
+        created: number;
+        skipped: number;
+        merged?: number;
+        ok?: boolean;
+      }>("/backup/import", {
+        content: importText,
+        format: importFormat,
+        strategy,
+        confirm_replace: strategy === "replace_all",
+      });
+      setMsg(
+        `Imported (${importFormat}/${strategy}): created ${r.created}, skipped ${r.skipped}` +
+          (r.merged != null ? `, merged ${r.merged}` : ""),
+      );
+    } catch (e: any) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      {msg ? <div className="success" style={{ marginBottom: 12 }}>{msg}</div> : null}
+      {err ? <div className="error" style={{ marginBottom: 12 }}>{err}</div> : null}
+      <div className="split-2">
+        <div className="card stack">
+          <div className="settings-section-title">{t("export")}</div>
+          <div className="muted-sm">{t("exportHint")}</div>
+          <div className="row wrap">
+            <button className="btn btn-soft" type="button" onClick={() => void exportFmt("json")}>
+              JSON
+            </button>
+            <button className="btn btn-soft" type="button" onClick={() => void exportFmt("csv")}>
+              CSV
+            </button>
+            <button className="btn btn-soft" type="button" onClick={() => void exportFmt("html")}>
+              HTML
+            </button>
+          </div>
+        </div>
+        <div className="card stack">
+          <div className="settings-section-title">{t("import")}</div>
+          <div className="muted-sm">{t("importHint")}</div>
+          <label
+            className="stack"
+            style={{
+              gap: 6,
+              border: "1.5px dashed var(--border)",
+              borderRadius: 11,
+              padding: 20,
+              textAlign: "center",
+              cursor: "pointer",
+              color: "var(--text3)",
+              fontSize: 12.5,
+            }}
+          >
+            ⇪ {t("dropFile")}
+            <input
+              type="file"
+              accept=".json,.csv,.html,.htm,text/html,text/csv,application/json"
+              data-testid="import-file"
+              style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
+              onChange={(e) => void onFile(e.target.files?.[0] || null)}
+            />
+            {fileName ? <span className="muted">Selected: {fileName}</span> : null}
+          </label>
+          <div className="settings-grid">
+            <label className="field">
+              {t("dedupe")}
+              <select
+                className="input"
+                value={strategy}
+                data-testid="import-strategy"
+                onChange={(e) => setStrategy(e.target.value as ImportStrategy)}
+              >
+                <option value="skip_duplicate">skip_duplicate</option>
+                <option value="merge">merge</option>
+                <option value="replace_all">replace_all</option>
+              </select>
+            </label>
+            <label className="field">
+              {t("import")}
+              <select
+                className="input"
+                value={importFormat}
+                onChange={(e) => setImportFormat(e.target.value as any)}
+                data-testid="import-format"
+              >
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+                <option value="html">HTML (Netscape)</option>
+              </select>
+            </label>
+          </div>
+          <textarea
+            className="input"
+            rows={5}
+            placeholder="Paste JSON / CSV / HTML to import"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            data-testid="import-text"
+          />
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={busy}
+            data-testid="import-submit"
+            onClick={() => void doImport()}
+          >
+            {busy ? t("importing") : `${t("import")} ${importFormat.toUpperCase()}`}
+          </button>
+        </div>
+      </div>
+      {confirmElement}
+      <Toast message={toast} />
+    </>
+  );
+}
+
+/* ---------- webdav ---------- */
+
+function WebdavSection() {
+  const { api } = useAuth();
+  const { t } = useI18n();
+  const { toast, showToast } = useToast();
+  const [webdav, setWebdav] = useState<any>({});
+
+  useEffect(() => {
+    void api.get("/backup/webdav").then(setWebdav);
+  }, [api]);
+
+  async function save() {
+    const r = await api.put("/backup/webdav", webdav);
+    setWebdav(r);
+    showToast(`WebDAV ${t("save")} ✓`);
+  }
+
+  async function test() {
+    const r = await api.get<{ ok: boolean; message?: string }>("/backup/webdav?test=true");
+    showToast(r.ok ? "WebDAV OK" : `WebDAV: ${r.message}`);
+  }
+
+  return (
+    <div className="card stack" style={{ maxWidth: 560 }}>
+      <div className="row">
+        <div className="settings-section-title">WebDAV</div>
+        <span className="spacer">
+          <Switch
+            checked={!!webdav.enabled}
+            onChange={(v) => setWebdav({ ...webdav, enabled: v })}
+            label={t("enabled")}
+          />
+        </span>
+      </div>
+      <label className="field">
+        URL
+        <input
+          className="input input-mono"
+          placeholder="https://dav.example.com/remote.php/dav"
+          value={webdav.url || ""}
+          onChange={(e) => setWebdav({ ...webdav, url: e.target.value })}
+        />
+      </label>
+      <div className="settings-grid">
+        <label className="field">
+          {t("username")}
+          <input
+            className="input input-mono"
+            value={webdav.username || ""}
+            onChange={(e) => setWebdav({ ...webdav, username: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          {t("password")}
+          <input
+            className="input input-mono"
+            type="password"
+            placeholder={webdav.password_set ? `${t("password")} ${t("keepBlank")}` : ""}
+            onChange={(e) => setWebdav({ ...webdav, password: e.target.value })}
+          />
+        </label>
+      </div>
+      <label className="field">
+        Path
+        <input
+          className="input input-mono"
+          placeholder="/markhub"
+          value={webdav.path || ""}
+          onChange={(e) => setWebdav({ ...webdav, path: e.target.value })}
+        />
+      </label>
+      <div className="row">
+        <button className="btn btn-soft" type="button" onClick={() => void test()}>
+          {t("testConn")}
+        </button>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => void api.post("/backup/webdav").then(() => showToast("WebDAV ✓"))}
+        >
+          {t("runNow")}
+        </button>
+        <button className="btn btn-primary" type="button" onClick={() => void save()}>
+          {t("save")}
+        </button>
+      </div>
+      <Toast message={toast} />
+    </div>
+  );
+}
+
+/* ---------- s3 ---------- */
+
+function S3Section() {
+  const { api } = useAuth();
+  const { t } = useI18n();
+  const { toast, showToast } = useToast();
+  const [s3, setS3] = useState<any>({});
+
+  useEffect(() => {
+    void api.get("/backup/s3").then(setS3);
+  }, [api]);
+
+  async function save() {
+    const r = await api.put("/backup/s3", s3);
+    setS3(r);
+    showToast(`S3 ${t("save")} ✓`);
+  }
+
+  async function test() {
+    const r = await api.get<{ ok: boolean; message?: string; latency_ms?: number }>(
+      "/backup/s3?test=true",
+    );
+    showToast(r.ok ? `S3 OK (${r.latency_ms}ms)` : `S3: ${r.message}`);
+  }
+
+  return (
+    <div className="card stack" style={{ maxWidth: 560 }}>
+      <div className="row">
+        <div className="settings-section-title">S3 / Cloudflare R2</div>
+        <span className="spacer">
+          <Switch
+            checked={!!s3.enabled}
+            onChange={(v) => setS3({ ...s3, enabled: v })}
+            label={t("enabled")}
+          />
+        </span>
+      </div>
+      <label className="field">
+        Endpoint
+        <input
+          className="input input-mono"
+          placeholder="https://<account>.r2.cloudflarestorage.com"
+          value={s3.endpoint || ""}
+          onChange={(e) => setS3({ ...s3, endpoint: e.target.value })}
+        />
+      </label>
+      <div className="settings-grid">
+        <label className="field">
+          Region
+          <input
+            className="input input-mono"
+            placeholder="auto"
+            value={s3.region || ""}
+            onChange={(e) => setS3({ ...s3, region: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          Bucket
+          <input
+            className="input input-mono"
+            value={s3.bucket || ""}
+            onChange={(e) => setS3({ ...s3, bucket: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          Key prefix
+          <input
+            className="input input-mono"
+            value={s3.key_prefix || ""}
+            onChange={(e) => setS3({ ...s3, key_prefix: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          Backup time (HH:mm)
+          <input
+            className="input input-mono"
+            placeholder="02:00"
+            value={s3.backup_time || ""}
+            onChange={(e) => setS3({ ...s3, backup_time: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          Access key ID
+          <input
+            className="input input-mono"
+            value={s3.access_key_id || ""}
+            onChange={(e) => setS3({ ...s3, access_key_id: e.target.value })}
+          />
+        </label>
+        <label className="field">
+          Secret access key
+          <input
+            className="input input-mono"
+            type="password"
+            placeholder={s3.secret_set ? `${t("keepBlank")}` : ""}
+            onChange={(e) => setS3({ ...s3, secret_access_key: e.target.value })}
+          />
+        </label>
+      </div>
+      <div className="row">
+        <button className="btn btn-soft" type="button" onClick={() => void test()}>
+          {t("testConn")}
+        </button>
+        <button
+          className="btn"
+          type="button"
+          onClick={() => void api.post("/backup/s3").then(() => showToast("S3 ✓"))}
+        >
+          {t("runNow")}
+        </button>
+        <button className="btn btn-primary" type="button" onClick={() => void save()}>
+          {t("save")}
+        </button>
+      </div>
+      {s3.last_backup_at ? (
+        <div className="muted">
+          {t("lastBackup")}: {s3.last_backup_at}
+        </div>
+      ) : null}
+      <Toast message={toast} />
+    </div>
+  );
+}

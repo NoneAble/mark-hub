@@ -9,14 +9,10 @@ type NavItem = { path: string; labelKey: string; icon: string; end?: boolean };
 
 const MAIN_NAV: NavItem[] = [
   { path: "/app", labelKey: "workbench", icon: "⌂", end: true },
-];
-
-const ADMIN_NAV: NavItem[] = [
   { path: "/admin/bookmarks", labelKey: "bookmarks", icon: "★" },
   { path: "/admin/folders", labelKey: "folders", icon: "⊞" },
   { path: "/admin/tags", labelKey: "tags", icon: "#" },
-  { path: "/admin/backup", labelKey: "backup", icon: "⇓" },
-  { path: "/admin/account", labelKey: "account", icon: "☺" },
+  { path: "/admin/settings", labelKey: "settings", icon: "⚙" },
 ];
 
 export function WorkbenchShell() {
@@ -31,7 +27,7 @@ export function WorkbenchShell() {
     setTheme(currentTheme());
   }, []);
 
-  const allNav = [...MAIN_NAV, ...ADMIN_NAV];
+  const allNav = MAIN_NAV;
 
   function onToggleTheme() {
     setTheme(toggleTheme());
@@ -102,8 +98,6 @@ export function WorkbenchShell() {
           <span>{t("appName")}</span>
         </div>
         <NavItems items={MAIN_NAV} />
-        <div className="sidebar-group">{t("adminGroup")}</div>
-        <NavItems items={ADMIN_NAV} />
         <div className="sidebar-foot">
           <div className="sidebar-nav">
             <button type="button" className="nav-item" onClick={() => nav("/")}>
