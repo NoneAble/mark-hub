@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "markhub"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "d4e64eb9-3ee4-4f17-8f4d-29a9f6af5299"
 migrations_dir = "migrations"
 
 [assets]
