@@ -140,7 +140,7 @@ wait_spa() {
   local port=$1 log_file=$2 body
   for _ in $(seq 1 80); do
     body="$(curl --fail --silent --show-error --max-time 2 \
-      "http://127.0.0.1:${port}/admin/login" 2>/dev/null || true)"
+      "http://127.0.0.1:${port}/" 2>/dev/null || true)"
     if [[ "$body" == *"$SPA_MARKER"* ]]; then
       return 0
     fi

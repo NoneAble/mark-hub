@@ -3,7 +3,6 @@ import type { ApiClient } from "@markhub/api-client";
 import { useI18n } from "../i18n";
 import { LetterAvatar } from "./ui";
 import {
-  ColorPicker,
   Combobox,
   ComboOption,
   FaviconImg,
@@ -20,7 +19,7 @@ export type FolderLike = {
   is_system?: boolean;
 };
 
-export type TagLike = { id?: string; name: string; color?: string | null };
+export type TagLike = { id?: string; name: string };
 
 export type BookmarkDraft = {
   folder_id: string; // "" = default (Inbox); "__new__:<name>" = create on save
@@ -76,9 +75,9 @@ export function draftFromBookmark(bm: {
 
 /**
  * Unified add/edit bookmark form (spec order): category combobox (creatable) →
- * URL + auto-fetch → title → description → icon → tags multi-select + color →
+ * URL + auto-fetch → title → description → icon → tags multi-select →
  * sort + visibility. Handles save internally, including creating a pending
- * category and persisting colors of newly created tags.
+ * category.
  */
 export function BookmarkForm({
   api,
@@ -107,11 +106,10 @@ export function BookmarkForm({
   const [draft, setDraft] = useState<BookmarkDraft>(initial);
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pendingTagColors, setPendingTagColors] = useState<Record<string, string | null>>({});
-  const [newTagColor, setNewTagColor] = useState<string | null>(null);
+  const [pendingTags, setPendingTags] = useState<string[]>([]);
 
   const folderOptions = useMemo<ComboOption[]>(() => {
-    const out: ComboOption[] = [{ value: "", label: t("allFolders") }];
+    const out: ComboOption[] = [{ value: "", label: t("inboxDefault") }];
     const byParent = new Map<string | null, FolderLike[]>();
     for (const f of folders) {
       const k = f.parent_id ?? null;
@@ -136,12 +134,12 @@ export function BookmarkForm({
 
   const tagOptions = useMemo(() => {
     const known = new Set(tags.map((x) => x.name));
-    const out = tags.map((x) => ({ name: x.name, color: x.color, isNew: false }));
-    for (const name of Object.keys(pendingTagColors)) {
-      if (!known.has(name)) out.push({ name, color: pendingTagColors[name], isNew: true });
+    const out = tags.map((x) => ({ name: x.name, isNew: false }));
+    for (const name of pendingTags) {
+      if (!known.has(name)) out.push({ name, isNew: true });
     }
     return out;
-  }, [tags, pendingTagColors]);
+  }, [tags, pendingTags]);
 
   async function autoFetch() {
     const url = draft.url.trim();
@@ -199,18 +197,6 @@ export function BookmarkForm({
 
       if (editingId) await api.patch(`/bookmarks/${editingId}`, payload);
       else await api.post("/bookmarks", payload);
-
-      // Persist colors picked for tags created through this form
-      const names = Object.keys(pendingTagColors).filter(
-        (n) => draft.tags.includes(n) && pendingTagColors[n],
-      );
-      if (names.length) {
-        const all = await api.get<{ items: TagLike[] }>("/tags");
-        for (const name of names) {
-          const tag = all.items.find((x) => x.name === name);
-          if (tag?.id) await api.patch(`/tags/${tag.id}`, { color: pendingTagColors[name] });
-        }
-      }
       onSaved();
     } catch (e) {
       onNotice?.(e instanceof Error ? e.message : String(e));
@@ -310,16 +296,13 @@ export function BookmarkForm({
       </Field>
 
       <Field label={t("tags")}>
-        <div className="row" style={{ flexWrap: "nowrap", gap: 8, alignItems: "flex-start" }}>
-          <TagPicker
-            selected={draft.tags}
-            options={tagOptions}
-            onChange={(names) => setDraft((d) => ({ ...d, tags: names }))}
-            onCreate={(name) => setPendingTagColors((m) => ({ ...m, [name]: newTagColor }))}
-            placeholder={t("tagsPh")}
-          />
-          <ColorPicker value={newTagColor} onChange={setNewTagColor} title={t("color")} />
-        </div>
+        <TagPicker
+          selected={draft.tags}
+          options={tagOptions}
+          onChange={(names) => setDraft((d) => ({ ...d, tags: names }))}
+          onCreate={(name) => setPendingTags((list) => (list.includes(name) ? list : [...list, name]))}
+          placeholder={t("tagsPh")}
+        />
       </Field>
 
       <div className="row" style={{ gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>

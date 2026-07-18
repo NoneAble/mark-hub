@@ -10,6 +10,7 @@ export type BmLike = {
   icon?: string | null;
   visibility?: string;
   is_favorite?: boolean;
+  is_archived?: boolean;
   tags?: Array<string | { name: string }> | null;
 };
 
@@ -39,7 +40,11 @@ type Props = {
   onDelete?: () => void;
   onFav?: () => void;
   onQr?: () => void;
-  /** When true, card itself is not an anchor wrapper (dashboard has multi-actions). */
+  onArchive?: () => void;
+  /** Batch selection (edit mode): render a checkbox overlay. */
+  selected?: boolean;
+  onSelectToggle?: () => void;
+  /** When true, only the title is a link; otherwise the whole card is an anchor. */
   linkTitleOnly?: boolean;
 };
 
@@ -50,6 +55,9 @@ export function BookmarkCard({
   onDelete,
   onFav,
   onQr,
+  onArchive,
+  selected,
+  onSelectToggle,
   linkTitleOnly = true,
 }: Props) {
   const b = brandOf(bm.url);
@@ -63,6 +71,19 @@ export function BookmarkCard({
   const body = (
     <>
       {tipOpen ? <div className="bm-title-tooltip">{bm.title}</div> : null}
+      {onSelectToggle ? (
+        <input
+          type="checkbox"
+          className="bm-check"
+          checked={!!selected}
+          aria-label={`select ${bm.title}`}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation();
+            onSelectToggle();
+          }}
+        />
+      ) : null}
       <div className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
         <BmAvatar bm={bm} />
         <div className="grow" style={{ minWidth: 0 }}>
@@ -98,7 +119,7 @@ export function BookmarkCard({
       {bm.description ? <div className="bm-desc">{bm.description}</div> : <div className="bm-desc" />}
       <div className="bm-meta">
         <TagList tags={bm.tags} />
-        {editMode || onFav || onEdit || onQr || onDelete ? (
+        {editMode || onFav || onEdit || onQr || onArchive || onDelete ? (
           <div className={`bm-actions${editMode ? " always" : ""}`}>
             {onFav ? (
               <button
@@ -143,6 +164,20 @@ export function BookmarkCard({
                 style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3 }}
               >
                 QR
+              </button>
+            ) : null}
+            {onArchive ? (
+              <button
+                type="button"
+                className="btn-icon"
+                title={bm.is_archived ? "Unarchive" : "Archive"}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onArchive();
+                }}
+              >
+                {bm.is_archived ? "📤" : "📦"}
               </button>
             ) : null}
             {onDelete ? (

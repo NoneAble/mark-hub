@@ -1,12 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { useAuth } from "../../lib/auth";
-import { useI18n } from "../../i18n";
-import { PageHeader, Toast, useToast } from "../../components/ui";
-import { Switch, useConfirm } from "../../components/form";
+import { useAuth } from "../lib/auth";
+import { useI18n } from "../i18n";
+import { Modal, Toast, useToast } from "./ui";
+import { Switch, useConfirm } from "./form";
 
 type ImportStrategy = "skip_duplicate" | "merge" | "replace_all";
-type TabId = "account" | "backup" | "webdav" | "s3";
+export type SettingsTab = "account" | "backup" | "webdav" | "s3";
 
 function detectFormat(name: string, text: string): "json" | "csv" | "html" {
   const lower = name.toLowerCase();
@@ -21,23 +20,41 @@ function detectFormat(name: string, text: string): "json" | "csv" | "html" {
   return "json";
 }
 
-export function AdminSettings({ initialTab }: { initialTab?: TabId }) {
+export function SettingsModal({
+  open,
+  initialTab = "account",
+  /** must_change_password flow: lock to the account tab and disable closing. */
+  forceAccount = false,
+  onClose,
+}: {
+  open: boolean;
+  initialTab?: SettingsTab;
+  forceAccount?: boolean;
+  onClose: () => void;
+}) {
   const { t } = useI18n();
-  const [params] = useSearchParams();
-  const urlTab = params.get("tab") as TabId | null;
-  const force = params.get("force") === "1";
-  const [tab, setTab] = useState<TabId>(initialTab || urlTab || (force ? "account" : "account"));
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
 
-  const tabs: [TabId, string][] = [
-    ["account", t("accountTab")],
-    ["backup", t("backupTab")],
-    ["webdav", t("webdavTab")],
-    ["s3", t("s3Tab")],
-  ];
+  useEffect(() => {
+    if (open) setTab(forceAccount ? "account" : initialTab);
+  }, [open, initialTab, forceAccount]);
+
+  const tabs: [SettingsTab, string][] = forceAccount
+    ? [["account", t("accountTab")]]
+    : [
+        ["account", t("accountTab")],
+        ["backup", t("backupTab")],
+        ["webdav", t("webdavTab")],
+        ["s3", t("s3Tab")],
+      ];
 
   return (
-    <div style={{ maxWidth: 860 }}>
-      <PageHeader title={t("settings")} />
+    <Modal
+      open={open}
+      wide
+      title={t("settings")}
+      onClose={forceAccount ? () => {} : onClose}
+    >
       <div className="tabs">
         {tabs.map(([id, label]) => (
           <button
@@ -50,21 +67,19 @@ export function AdminSettings({ initialTab }: { initialTab?: TabId }) {
           </button>
         ))}
       </div>
-      {tab === "account" ? <AccountSection /> : null}
+      {tab === "account" ? <AccountSection force={forceAccount} /> : null}
       {tab === "backup" ? <BackupSection /> : null}
       {tab === "webdav" ? <WebdavSection /> : null}
       {tab === "s3" ? <S3Section /> : null}
-    </div>
+    </Modal>
   );
 }
 
 /* ---------- account ---------- */
 
-function AccountSection() {
-  const { api, user, setUser } = useAuth();
+function AccountSection({ force }: { force: boolean }) {
+  const { api, user, setUser, logout } = useAuth();
   const { t } = useI18n();
-  const [params] = useSearchParams();
-  const force = params.get("force") === "1" || user?.must_change_password;
   const [current_password, setCurrent] = useState("");
   const [new_username, setUsername] = useState(user?.username || "");
   const [new_password, setPassword] = useState("");
@@ -93,7 +108,7 @@ function AccountSection() {
   }
 
   return (
-    <div style={{ maxWidth: 480 }}>
+    <div>
       {force ? (
         <div
           className="card"
@@ -102,8 +117,7 @@ function AccountSection() {
           {t("mustChangePassword")}
         </div>
       ) : null}
-      <form className="card stack" onSubmit={(e) => void onSubmit(e)}>
-        <div className="settings-section-title">{t("account")}</div>
+      <form className="stack" onSubmit={(e) => void onSubmit(e)}>
         <label className="field">
           {t("currentPassword")}
           <input
@@ -111,6 +125,7 @@ function AccountSection() {
             type="password"
             value={current_password}
             onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
             required
           />
         </label>
@@ -129,15 +144,23 @@ function AccountSection() {
             type="password"
             value={new_password}
             onChange={(e) => setPassword(e.target.value)}
-            required={!!force}
+            autoComplete="new-password"
+            required={force}
           />
         </label>
         {error ? <div className="error">{error}</div> : null}
         {msg ? <div className="success">{msg}</div> : null}
-        <div>
+        <div className="row">
           <button className="btn btn-primary" type="submit">
             {t("updateCredentials")}
           </button>
+          {force ? (
+            // Forced-change mode blocks closing — leave an exit for users who
+            // can't produce the current password.
+            <button className="btn" type="button" onClick={logout}>
+              {t("logout")}
+            </button>
+          ) : null}
         </div>
       </form>
     </div>
@@ -234,86 +257,86 @@ function BackupSection() {
 
   return (
     <>
-      {msg ? <div className="success" style={{ marginBottom: 12 }}>{msg}</div> : null}
-      {err ? <div className="error" style={{ marginBottom: 12 }}>{err}</div> : null}
-      <div className="split-2">
-        <div className="card stack">
-          <div className="settings-section-title">{t("export")}</div>
-          <div className="muted-sm">{t("exportHint")}</div>
-          <div className="row wrap">
-            <button className="btn btn-soft" type="button" onClick={() => void exportFmt("json")}>
-              JSON
-            </button>
-            <button className="btn btn-soft" type="button" onClick={() => void exportFmt("csv")}>
-              CSV
-            </button>
-            <button className="btn btn-soft" type="button" onClick={() => void exportFmt("html")}>
-              HTML
-            </button>
-          </div>
+      {msg ? <div className="success">{msg}</div> : null}
+      {err ? <div className="error">{err}</div> : null}
+      <div className="stack" style={{ gap: 8 }}>
+        <div className="settings-section-title">{t("export")}</div>
+        <div className="muted-sm">{t("exportHint")}</div>
+        <div className="row wrap">
+          <button className="btn btn-soft" type="button" onClick={() => void exportFmt("json")}>
+            JSON
+          </button>
+          <button className="btn btn-soft" type="button" onClick={() => void exportFmt("csv")}>
+            CSV
+          </button>
+          <button className="btn btn-soft" type="button" onClick={() => void exportFmt("html")}>
+            HTML
+          </button>
         </div>
-        <div className="card stack">
-          <div className="settings-section-title">{t("import")}</div>
-          <div className="muted-sm">{t("importHint")}</div>
-          <label
-            className="stack"
-            style={{
-              gap: 6,
-              border: "1.5px dashed var(--border)",
-              borderRadius: 11,
-              padding: 20,
-              textAlign: "center",
-              cursor: "pointer",
-              color: "var(--text3)",
-              fontSize: 12.5,
-            }}
-          >
-            ⇪ {t("dropFile")}
-            <input
-              type="file"
-              accept=".json,.csv,.html,.htm,text/html,text/csv,application/json"
-              data-testid="import-file"
-              style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
-              onChange={(e) => void onFile(e.target.files?.[0] || null)}
-            />
-            {fileName ? <span className="muted">Selected: {fileName}</span> : null}
-          </label>
-          <div className="settings-grid">
-            <label className="field">
-              {t("dedupe")}
-              <select
-                className="input"
-                value={strategy}
-                data-testid="import-strategy"
-                onChange={(e) => setStrategy(e.target.value as ImportStrategy)}
-              >
-                <option value="skip_duplicate">skip_duplicate</option>
-                <option value="merge">merge</option>
-                <option value="replace_all">replace_all</option>
-              </select>
-            </label>
-            <label className="field">
-              {t("import")}
-              <select
-                className="input"
-                value={importFormat}
-                onChange={(e) => setImportFormat(e.target.value as any)}
-                data-testid="import-format"
-              >
-                <option value="json">JSON</option>
-                <option value="csv">CSV</option>
-                <option value="html">HTML (Netscape)</option>
-              </select>
-            </label>
-          </div>
-          <textarea
-            className="input"
-            rows={5}
-            placeholder="Paste JSON / CSV / HTML to import"
-            value={importText}
-            onChange={(e) => setImportText(e.target.value)}
-            data-testid="import-text"
+      </div>
+      <div className="stack" style={{ gap: 8, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+        <div className="settings-section-title">{t("import")}</div>
+        <div className="muted-sm">{t("importHint")}</div>
+        <label
+          className="stack"
+          style={{
+            gap: 6,
+            border: "1.5px dashed var(--border)",
+            borderRadius: 11,
+            padding: 20,
+            textAlign: "center",
+            cursor: "pointer",
+            color: "var(--text3)",
+            fontSize: 12.5,
+          }}
+        >
+          ⇪ {t("dropFile")}
+          <input
+            type="file"
+            accept=".json,.csv,.html,.htm,text/html,text/csv,application/json"
+            data-testid="import-file"
+            style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden" }}
+            onChange={(e) => void onFile(e.target.files?.[0] || null)}
           />
+          {fileName ? <span className="muted">Selected: {fileName}</span> : null}
+        </label>
+        <div className="settings-grid">
+          <label className="field">
+            {t("dedupe")}
+            <select
+              className="input"
+              value={strategy}
+              data-testid="import-strategy"
+              onChange={(e) => setStrategy(e.target.value as ImportStrategy)}
+            >
+              <option value="skip_duplicate">skip_duplicate</option>
+              <option value="merge">merge</option>
+              <option value="replace_all">replace_all</option>
+            </select>
+          </label>
+          <label className="field">
+            {t("import")}
+            <select
+              className="input"
+              value={importFormat}
+              onChange={(e) => setImportFormat(e.target.value as any)}
+              data-testid="import-format"
+            >
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="html">HTML (Netscape)</option>
+            </select>
+          </label>
+        </div>
+        <textarea
+          className="input"
+          rows={5}
+          placeholder="Paste JSON / CSV / HTML to import"
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          data-testid="import-text"
+        />
+        <div>
           <button
             className="btn btn-primary"
             type="button"
@@ -355,7 +378,7 @@ function WebdavSection() {
   }
 
   return (
-    <div className="card stack" style={{ maxWidth: 560 }}>
+    <div className="stack">
       <div className="row">
         <div className="settings-section-title">WebDAV</div>
         <span className="spacer">
@@ -449,7 +472,7 @@ function S3Section() {
   }
 
   return (
-    <div className="card stack" style={{ maxWidth: 560 }}>
+    <div className="stack">
       <div className="row">
         <div className="settings-section-title">S3 / Cloudflare R2</div>
         <span className="spacer">

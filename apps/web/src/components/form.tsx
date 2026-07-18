@@ -7,25 +7,11 @@ import React, {
   useState,
 } from "react";
 import { useI18n } from "../i18n";
+import { isComposingEvent, useDialogFocus } from "./ui";
 
 /* ---------- shared helpers ---------- */
 
-export const TAG_PALETTE = [
-  "#ef4444",
-  "#f97316",
-  "#f59e0b",
-  "#84cc16",
-  "#22c55e",
-  "#14b8a6",
-  "#0ea5e9",
-  "#3b82f6",
-  "#8b5cf6",
-  "#d946ef",
-  "#ec4899",
-  "#64748b",
-];
-
-function useClickOutside(onClose: () => void) {
+export function useClickOutside(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: MouseEvent | TouchEvent) => {
@@ -60,16 +46,6 @@ function Caret({ open }: { open: boolean }) {
   );
 }
 
-export function ColorDot({ color, size = 10 }: { color?: string | null; size?: number }) {
-  return (
-    <span
-      className={`color-dot${color ? "" : " empty"}`}
-      style={{ width: size, height: size, background: color || "transparent" }}
-      aria-hidden
-    />
-  );
-}
-
 /* ---------- Field wrapper ---------- */
 
 export function Field({
@@ -98,7 +74,6 @@ export type ComboOption = {
   value: string;
   label: string;
   hint?: string;
-  dot?: string | null;
   pad?: number;
   isNew?: boolean;
 };
@@ -171,6 +146,7 @@ export function Combobox({
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
+    if (isComposingEvent(e)) return;
     if (e.key === "Escape") {
       if (open) {
         // Close only the dropdown, not an enclosing modal
@@ -214,7 +190,6 @@ export function Combobox({
           inputRef.current?.focus();
         }}
       >
-        {selected?.dot !== undefined ? <ColorDot color={selected?.dot} /> : null}
         <input
           ref={inputRef}
           className="combo-input"
@@ -252,7 +227,6 @@ export function Combobox({
               onClick={() => pick(o.value)}
             >
               <span style={{ paddingLeft: o.pad || 0 }} className="combo-option-label">
-                {o.dot !== undefined ? <ColorDot color={o.dot} /> : null}
                 {o.label}
                 {o.isNew ? <span className="combo-new">{t("newSuffix")}</span> : null}
               </span>
@@ -282,7 +256,7 @@ export function Combobox({
 
 /* ---------- TagPicker (multi select + create) ---------- */
 
-export type TagOption = { name: string; color?: string | null; isNew?: boolean };
+export type TagOption = { name: string; isNew?: boolean };
 
 export function TagPicker({
   selected,
@@ -341,6 +315,7 @@ export function TagPicker({
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
+    if (isComposingEvent(e)) return;
     if (e.key === "Escape") {
       if (open) {
         // Close only the dropdown, not an enclosing modal
@@ -382,8 +357,7 @@ export function TagPicker({
         {selected.map((name) => {
           const o = byName.get(name);
           return (
-            <span key={name} className="tagpick-chip" style={tagChipStyle(o?.color)}>
-              <ColorDot color={o?.color} size={8} />
+            <span key={name} className="tagpick-chip">
               {name}
               {o?.isNew ? <span className="combo-new">{t("newSuffix")}</span> : null}
               <button
@@ -432,7 +406,6 @@ export function TagPicker({
               onClick={() => toggle(o.name)}
             >
               <span className="combo-option-label">
-                <ColorDot color={o.color} />
                 {o.name}
                 {o.isNew ? <span className="combo-new">{t("newSuffix")}</span> : null}
               </span>
@@ -452,76 +425,6 @@ export function TagPicker({
               </span>
             </button>
           ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function tagChipStyle(color?: string | null): React.CSSProperties | undefined {
-  if (!color) return undefined;
-  return {
-    background: `color-mix(in srgb, ${color} 14%, transparent)`,
-    color: `color-mix(in srgb, ${color} 80%, var(--text))`,
-  };
-}
-
-/* ---------- ColorPicker ---------- */
-
-export function ColorPicker({
-  value,
-  onChange,
-  title,
-}: {
-  value: string | null;
-  onChange: (c: string | null) => void;
-  title?: string;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const rootRef = useClickOutside(useCallback(() => setOpen(false), []));
-  return (
-    <div className="combo color-picker" ref={rootRef}>
-      <button
-        type="button"
-        className="btn color-picker-btn"
-        title={title || t("color")}
-        aria-label={title || t("color")}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <ColorDot color={value} size={14} />
-        <Caret open={open} />
-      </button>
-      {open ? (
-        <div className="combo-menu color-menu">
-          <div className="color-grid">
-            {TAG_PALETTE.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`color-cell${value === c ? " active" : ""}`}
-                style={{ background: c }}
-                aria-label={c}
-                onClick={() => {
-                  onChange(c);
-                  setOpen(false);
-                }}
-              />
-            ))}
-          </div>
-          <button
-            type="button"
-            className="combo-option"
-            onClick={() => {
-              onChange(null);
-              setOpen(false);
-            }}
-          >
-            <span className="combo-option-label">
-              <ColorDot color={null} />
-              {t("noColor")}
-            </span>
-          </button>
         </div>
       ) : null}
     </div>
@@ -615,21 +518,30 @@ export function useConfirm() {
     resolver.current?.(ok);
   }, []);
 
+  const dialogRef = useDialogFocus(!!opts);
+
   useEffect(() => {
     if (!opts) return;
+    // Capture phase + stopPropagation: Esc closes only the confirm, not an
+    // enclosing modal (e.g. tag delete confirm inside the tag modal).
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") done(false);
+      if (e.key === "Escape" && !isComposingEvent(e)) {
+        e.stopPropagation();
+        done(false);
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [opts, done]);
 
   const element = opts ? (
     <div className="modal-backdrop" onClick={() => done(false)} role="presentation">
       <div
+        ref={dialogRef}
         className="modal confirm-modal"
         role="alertdialog"
         aria-modal
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-title">{opts.title || t("confirmTitle")}</div>

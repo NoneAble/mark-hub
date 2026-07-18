@@ -264,6 +264,7 @@ export function SearchModal({
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useDialogFocus(open);
 
   useEffect(() => {
     if (!open) return;
@@ -290,9 +291,13 @@ export function SearchModal({
 
   useEffect(() => {
     if (!open) return;
+    // Capture phase: Esc must close only the palette, not a modal underneath;
+    // IME guard: Esc/Enter that commit or cancel a composition are not ours.
     const onKey = (e: KeyboardEvent) => {
+      if (isComposingEvent(e)) return;
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         onClose();
         return;
       }
@@ -311,8 +316,8 @@ export function SearchModal({
         }
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [open, onClose, results, active]);
 
   useEffect(() => {
@@ -326,10 +331,12 @@ export function SearchModal({
   return (
     <div className="search-modal-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={dialogRef}
         className="search-modal"
         role="dialog"
         aria-modal
         aria-label={placeholder || "Search"}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="search-modal-input-row">
@@ -433,28 +440,66 @@ export function TagList({ tags }: { tags?: Array<string | { name: string }> | nu
   );
 }
 
-export function PageHeader({
-  title,
-  sub,
-  actions,
-}: {
-  title: React.ReactNode;
-  sub?: React.ReactNode;
-  actions?: React.ReactNode;
-}) {
-  return (
-    <div style={{ marginBottom: sub ? 16 : 18 }}>
-      <div className="page-header">
-        <h1 className="page-title">{title}</h1>
-        {actions ? <div className="row spacer">{actions}</div> : null}
-      </div>
-      {sub ? <p className="page-sub">{sub}</p> : null}
-    </div>
-  );
+/** True while an IME composition is in progress — Esc/Enter then belong to the IME. */
+export function isComposingEvent(e: KeyboardEvent | React.KeyboardEvent): boolean {
+  const ne = "nativeEvent" in e ? e.nativeEvent : e;
+  return ne.isComposing || ne.keyCode === 229;
 }
 
-export function EmptyState({ children }: { children: React.ReactNode }) {
-  return <div className="empty-state">{children}</div>;
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Dialog focus management: move focus inside on open, keep Tab cycling within
+ * the dialog, and restore focus to the trigger on close.
+ */
+export function useDialogFocus(active: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!active) return;
+    const dialog = ref.current;
+    if (!dialog) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    if (!dialog.contains(document.activeElement)) {
+      const first = dialog.querySelector<HTMLElement>("[autofocus]") ||
+        dialog.querySelector<HTMLElement>(FOCUSABLE);
+      (first || dialog).focus();
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const current = document.activeElement as HTMLElement | null;
+      // A dialog stacked on top of this one (confirm, search palette) owns focus
+      if (
+        current &&
+        !dialog.contains(current) &&
+        current.closest('[role="dialog"], [role="alertdialog"]')
+      ) {
+        return;
+      }
+      const items = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (el) => el.offsetParent !== null,
+      );
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!dialog.contains(current)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && current === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && current === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (trigger && document.contains(trigger)) trigger.focus();
+    };
+  }, [active]);
+  return ref;
 }
 
 export function Modal({
@@ -472,10 +517,12 @@ export function Modal({
   footer?: React.ReactNode;
   wide?: boolean;
 }) {
+  const dialogRef = useDialogFocus(open);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !isComposingEvent(e)) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -485,10 +532,12 @@ export function Modal({
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={dialogRef}
         className={`modal${wide ? " modal-lg" : ""}`}
         role="dialog"
         aria-modal
         aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-title">{title}</div>

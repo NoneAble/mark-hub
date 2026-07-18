@@ -1,4 +1,4 @@
-/** Theme helpers for the workbench shell. */
+/** Light/dark theme helpers (persisted in localStorage). */
 
 export function toggleTheme(): "light" | "dark" {
   const isDark = document.documentElement.classList.contains("dark");

@@ -4,84 +4,85 @@ const USER = process.env.MARKHUB_ADMIN_USERNAME || "admin";
 const PASS = process.env.MARKHUB_ADMIN_PASSWORD || "admin123";
 const NEW_PASS = process.env.MARKHUB_NEW_PASSWORD || "E2eAdminPass99!";
 
+async function openLoginModal(page: Page) {
+  await page.goto("/");
+  await page.getByTestId("topbar-login").click();
+  await expect(page.getByTestId("login-password")).toBeVisible();
+}
+
 async function submitLogin(page: Page, password: string) {
-  await page.goto("/admin/login");
-  await page.getByRole("textbox", { name: /username|用户名/i }).fill(USER);
-  await page.locator('input[type="password"]').fill(password);
-  await page.getByRole("button", { name: /login|登录/i }).click();
+  await openLoginModal(page);
+  await page.getByTestId("login-username").fill(USER);
+  await page.getByTestId("login-password").fill(password);
+  await page.getByTestId("login-submit").click();
+}
+
+async function completeForcedPasswordChange(page: Page, currentPassword: string) {
+  // must_change_password: the settings modal opens automatically on the account tab
+  const dialog = page.locator(".modal");
+  await expect(dialog).toContainText(/change the default password|修改默认密码/i);
+  const pwInputs = dialog.locator('input[type="password"]');
+  await pwInputs.nth(0).fill(currentPassword);
+  await pwInputs.nth(1).fill(NEW_PASS);
+  // Submit via Enter: on mobile emulation the focused input pans the visual
+  // viewport, which skews Playwright's click coordinates.
+  await pwInputs.nth(1).press("Enter");
+  await expect(dialog.locator(".success")).toContainText(/Updated|已更新/);
+  await page.keyboard.press("Escape");
+  // Mobile emulation: focusing inputs pans the visual viewport; reset it so
+  // later coordinate-based clicks land where they should.
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    window.scrollTo(0, 0);
+  });
 }
 
 async function ensureLoggedIn(page: Page) {
-  await page.goto("/admin/login");
-  await page.locator("input").nth(0).fill(USER);
-  await page.locator('input[type="password"]').first().fill(PASS);
-  await page.locator('button[type="submit"], button:has-text("Login"), button:has-text("登录")').first().click();
-  await page.waitForTimeout(400);
-  if (page.url().includes("/login")) {
-    await page.locator("input").nth(0).fill(USER);
-    await page.locator('input[type="password"]').first().fill(NEW_PASS);
-    await page.locator('button[type="submit"], button:has-text("Login"), button:has-text("登录")').first().click();
+  await submitLogin(page, PASS);
+  await page.waitForTimeout(500);
+  const loginError = page.locator(".modal .error");
+  if (await loginError.isVisible().catch(() => false)) {
+    // Password already rotated by an earlier run
+    await page.getByTestId("login-password").fill(NEW_PASS);
+    await page.getByTestId("login-submit").click();
+    await page.waitForTimeout(500);
   }
-  // Force password change flow
-  if (page.url().includes("account") || (await page.locator('input[type="password"]').count()) >= 2) {
-    const inputs = page.locator('input[type="password"]');
-    const count = await inputs.count();
-    if (count >= 2 && (page.url().includes("account") || page.url().includes("force") || page.url().includes("login") === false)) {
-      // may already be past force-change
-    }
-    if (page.url().includes("account") || page.url().includes("force")) {
-      await inputs.nth(0).fill(PASS);
-      await inputs.nth(1).fill(NEW_PASS);
-      if (count >= 3) await inputs.nth(2).fill(NEW_PASS);
-      await page.locator('button[type="submit"]').first().click();
-      await page.waitForTimeout(400);
-      await page.goto("/admin/login");
-      await page.locator("input").nth(0).fill(USER);
-      await page.locator('input[type="password"]').first().fill(NEW_PASS);
-      await page.locator('button[type="submit"]').first().click();
-    }
+  // Forced password change on first login
+  const forced = page.locator(".modal", {
+    hasText: /change the default password|修改默认密码/i,
+  });
+  if (await forced.isVisible().catch(() => false)) {
+    await completeForcedPasswordChange(page, PASS);
   }
-  await page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20_000 });
-  expect(page.url()).not.toMatch(/\/login/);
+  await expect(page.getByTestId("user-menu")).toBeVisible({ timeout: 20_000 });
 }
 
 test.describe("MarkHub material flows", () => {
   test("release acceptance journey @release", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("body")).toContainText(/MarkHub/);
-    await expect(page.getByRole("link", { name: /login|登录/i })).toBeVisible();
+    await expect(page.getByTestId("topbar-login")).toBeVisible();
 
     await submitLogin(page, "definitely-wrong-password-zzz");
-    await expect(page).toHaveURL(/\/admin\/login/);
-    await expect(page.locator(".error")).toContainText(/invalid|error|失败|密码/i);
+    await expect(page.locator(".modal .error")).toContainText(/invalid|error|失败|密码/i);
+    await page.keyboard.press("Escape");
 
     await submitLogin(page, PASS);
-    await expect(page).toHaveURL(/\/admin\/account\?force=1/);
-    await expect(page.locator("body")).toContainText(
-      /must change the default password|change the default password|修改默认密码/i,
-    );
-    await page.getByLabel(/current password/i).fill(PASS);
-    await page.getByLabel(/new password/i).fill(NEW_PASS);
-    await page.getByRole("button", { name: /update credentials/i }).click();
-    await expect(page.locator(".success")).toHaveText("Updated");
+    await completeForcedPasswordChange(page, PASS);
+    await expect(page.getByTestId("user-menu")).toBeVisible();
 
     await page.evaluate(() => localStorage.clear());
     await submitLogin(page, NEW_PASS);
-    await expect(page).toHaveURL(/\/app(?:$|\/)/);
+    await expect(page.getByTestId("user-menu")).toBeVisible();
 
     const stamp = `${Date.now()}-${test.info().project.name}`;
     const title = `Release bookmark ${stamp}`;
     const url = `https://release-${stamp}.example/item`;
-    await page.goto("/admin/bookmarks");
-    const createForm = page.locator("form").first();
-    await expect(createForm.getByPlaceholder(/title|标题/i)).toBeVisible();
-    await createForm.getByPlaceholder(/title|标题/i).fill(title);
-    await createForm.getByPlaceholder(/url|网址|链接/i).fill(url);
-    await createForm.getByRole("button", { name: /add|创建|新建/i }).click();
-    await expect(page.locator("tbody tr", { hasText: title })).toBeVisible();
-
-    await page.goto("/app");
-    await expect(page.getByTestId("bookmark-cards")).toContainText(title);
+    await page.getByTestId("topbar-add").click();
+    await page.getByTestId("bm-form-url").fill(url);
+    await page.getByTestId("bm-form-title").fill(title);
+    await page.getByTestId("bm-form-title").press("Enter");
+    await expect(page.locator("body")).toContainText(title, { timeout: 10_000 });
   });
 
   test("public navigation loads", async ({ page }) => {
@@ -90,32 +91,42 @@ test.describe("MarkHub material flows", () => {
     await expect(page.locator("body")).toContainText(/MarkHub|bookmark|书签|导航/i);
   });
 
-  test("login leaves /login and reaches admin shell", async ({ page }) => {
-    await ensureLoggedIn(page);
-    await page.goto("/admin");
-    await expect(page).not.toHaveURL(/\/login/);
-    await expect(page.locator("body")).toContainText(/Overview|Bookmarks|书签|总览|MarkHub/i);
+  test("legacy admin and app routes redirect home", async ({ page }) => {
+    for (const path of ["/admin", "/admin/bookmarks", "/admin/backup", "/app", "/admin/login"]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.locator("body")).toContainText(/MarkHub/);
+    }
   });
 
-  test("admin bookmarks CRUD creates a visible row", async ({ page }) => {
+  test("bookmark CRUD from the home page creates a visible card", async ({ page }) => {
     await ensureLoggedIn(page);
-    await page.goto("/admin/bookmarks");
     const stamp = Date.now();
     const title = `E2E ${stamp}`;
     const url = `https://e2e.example/${stamp}`;
-    const inputs = page.locator("input.input, form input");
-    await expect(inputs.first()).toBeVisible();
-    const n = await inputs.count();
-    expect(n).toBeGreaterThanOrEqual(2);
-    await inputs.nth(0).fill(title);
-    await inputs.nth(1).fill(url);
-    await page.getByRole("button", { name: /add|创建|新建/i }).first().click();
+    await page.getByTestId("topbar-add").click();
+    await page.getByTestId("bm-form-url").fill(url);
+    await page.getByTestId("bm-form-title").fill(title);
+    await page.getByTestId("bm-form-title").press("Enter");
     await expect(page.locator("body")).toContainText(title, { timeout: 10_000 });
+  });
+
+  test("edit mode exposes folder management and batch bar", async ({ page }) => {
+    await ensureLoggedIn(page);
+    await page.getByTestId("topbar-edit").click();
+    await expect(page.getByTestId("new-folder")).toBeVisible();
+    // Select the first card's checkbox → batch bar appears
+    const check = page.locator(".bm-check").first();
+    if (await check.isVisible().catch(() => false)) {
+      await check.check();
+      await expect(page.getByTestId("batch-bar")).toBeVisible();
+    }
   });
 
   test("backup import UI exposes format strategy and file picker", async ({ page }) => {
     await ensureLoggedIn(page);
-    await page.goto("/admin/backup");
+    await page.getByTestId("user-menu").click();
+    await page.getByTestId("menu-backup").click();
     await expect(page.getByTestId("import-file")).toBeVisible();
     await expect(page.getByTestId("import-format")).toBeVisible();
     await expect(page.getByTestId("import-strategy")).toBeVisible();
@@ -131,57 +142,29 @@ test.describe("MarkHub material flows", () => {
 </DL><p>`,
     );
     await page.getByTestId("import-submit").click();
-    await expect(page.locator("body")).toContainText(/Imported|created|skipped/i, { timeout: 15_000 });
+    await expect(page.locator("body")).toContainText(/Imported|created|skipped/i, {
+      timeout: 15_000,
+    });
   });
 
-  test("dashboard QR opens dialog when bookmarks exist", async ({ page }) => {
+  test("QR opens dialog when bookmarks exist", async ({ page }) => {
     await ensureLoggedIn(page);
-    // ensure a bookmark
-    await page.goto("/admin/bookmarks");
     const stamp = Date.now();
-    const inputs = page.locator("input.input, form input");
-    if ((await inputs.count()) >= 2) {
-      await inputs.nth(0).fill(`QR ${stamp}`);
-      await inputs.nth(1).fill(`https://qr-e2e.example/${stamp}`);
-      await page.getByRole("button", { name: /add|创建|新建/i }).first().click();
-      await page.waitForTimeout(400);
-    }
-    await page.goto("/app");
-    await expect(page.getByTestId("bookmark-cards")).toBeVisible({ timeout: 10_000 });
-    const qrBtn = page.locator('button:has-text("QR")').first();
-    await expect(qrBtn).toBeVisible({ timeout: 10_000 });
-    await qrBtn.click();
-    // modal should show
+    await page.getByTestId("topbar-add").click();
+    await page.getByTestId("bm-form-url").fill(`https://qr-e2e.example/${stamp}`);
+    await page.getByTestId("bm-form-title").fill(`QR ${stamp}`);
+    await page.getByTestId("bm-form-title").press("Enter");
+    await expect(page.locator("body")).toContainText(`QR ${stamp}`, { timeout: 10_000 });
+    const qrBtn = page.locator('[data-testid^="qr-"]').first();
+    await qrBtn.click({ force: true });
     await expect(page.locator("body")).toContainText(/QR|qr|scan|关闭|close|MarkHub/i);
   });
 
-  test("material routes render non-empty shells", async ({ page }) => {
-    await ensureLoggedIn(page);
-    for (const path of [
-      "/app",
-      "/admin/backup",
-      "/admin/tags",
-      "/admin/folders",
-      "/admin/bookmarks",
-    ]) {
-      await page.goto(path);
-      await expect(page.locator("body")).toBeVisible();
-      const text = await page.locator("body").innerText();
-      expect(text.length).toBeGreaterThan(20);
-      expect(page.url()).not.toMatch(/\/login/);
-    }
-  });
-
-  test("login failure path stays on login with bad password", async ({ page }) => {
-    await page.goto("/admin/login");
-    await page.locator("input").nth(0).fill(USER);
-    await page.locator('input[type="password"]').first().fill("definitely-wrong-password-zzz");
-    await page.locator("button").first().click();
+  test("login failure path shows an error and stays logged out", async ({ page }) => {
+    await submitLogin(page, "definitely-wrong-password-zzz");
     await page.waitForTimeout(600);
-    // Should remain on login or show error — must not reach admin overview
-    const url = page.url();
-    const body = await page.locator("body").innerText();
-    const stillLogin = /login/i.test(url) || /invalid|error|失败|密码/i.test(body);
-    expect(stillLogin || /login/i.test(url)).toBeTruthy();
+    await expect(page.locator(".modal .error")).toContainText(/invalid|error|失败|密码/i);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("topbar-login")).toBeVisible();
   });
 });

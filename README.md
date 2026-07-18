@@ -2,12 +2,14 @@
 
 Self-hosted **Web** bookmark hub: public navigation, tree folders, tags, sharing, WebDAV + **S3/R2** scheduled backups.
 
+Everything happens on the home page — no separate admin area. Log in, toggle **edit mode** (⌘/Ctrl+E) to manage bookmarks, categories and tags in place (incl. drag reorder, batch actions, archive); account, import/export and backup settings live in the top-right menu.
+
 **Delivery:** React SPA + REST API. Deploy with **Docker** (FastAPI + SQLite/Postgres) or **Cloudflare Workers + D1**. No browser extension.
 
 ## Monorepo
 
 ```
-apps/web          React SPA (/  /admin  /app)
+apps/web          React SPA (single page at /; edit mode + top-right settings menu)
 apps/worker       Cloudflare Workers + D1
 packages/core     Shared pure logic (normalizeUrl, visibility, import parsing, …)
 packages/api-client
