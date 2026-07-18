@@ -1,16 +1,30 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { brandOf } from "../lib/colors";
 
+/** MarkHub 图标：书签缎带轮廓，V 型缺口同时读作字母 M（与 public/favicon.svg 同源） */
 export function LogoMark({ size = 28 }: { size?: number }) {
-  const r = Math.round(size * 0.28);
+  const gid = "logo-tile-" + useId().replace(/[^a-zA-Z0-9-]/g, "");
   return (
-    <div
-      className="logo-mark"
-      style={{ width: size, height: size, borderRadius: r, fontSize: Math.round(size * 0.52) }}
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      style={{ flex: "none", display: "block" }}
       aria-hidden
+      focusable="false"
     >
-      M
-    </div>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#4983e5" />
+          <stop offset="1" stopColor="#2059c8" />
+        </linearGradient>
+      </defs>
+      <rect width="512" height="512" rx="115" fill={`url(#${gid})`} />
+      <path
+        fill="#fff"
+        d="M144 96 H368 Q400 96 400 128 V400 Q400 416 384 416 H358 Q344 416 340.08 402.56 L290.24 231.68 Q288 224 280 224 H232 Q224 224 221.76 231.68 L171.92 402.56 Q168 416 154 416 H128 Q112 416 112 400 V128 Q112 96 144 96 Z"
+      />
+    </svg>
   );
 }
 
