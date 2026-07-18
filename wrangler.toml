@@ -1,7 +1,7 @@
 # Root Wrangler config — used by the "Deploy to Cloudflare" button and by
 # root-level `wrangler deploy`. Keep in sync with apps/worker/wrangler.toml
 # (same Worker, paths relative to the repo root).
-name = "markhub"
+name = "mark-hub"
 main = "apps/worker/src/index.ts"
 compatibility_date = "2026-07-01"
 compatibility_flags = ["nodejs_compat"]
@@ -9,8 +9,6 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "markhub"
-# Placeholder — the Deploy to Cloudflare flow provisions a real database and
-# rewrites this id; for manual deploys, replace it with your database id.
 database_id = "d4e64eb9-3ee4-4f17-8f4d-29a9f6af5299"
 migrations_dir = "apps/worker/migrations"
 
