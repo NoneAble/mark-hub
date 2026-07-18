@@ -16,8 +16,7 @@ export type OpEntityType =
   | "folder"
   | "tag"
   | "reorder"
-  | "settings"
-  | "share";
+  | "settings";
 
 export type OpAction =
   | "create"

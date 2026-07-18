@@ -90,26 +90,3 @@ async def test_s3_put_rejects_invalid_config(client: AsyncClient, auth_headers):
     body = r.json()
     assert "error" in body
     assert body["error"]["code"] == "validation"
-
-
-@pytest.mark.asyncio
-async def test_share_password_query_rejected(client: AsyncClient, auth_headers):
-    # create a share with password
-    folders = (await client.get("/api/v1/folders", headers=auth_headers)).json()["items"]
-    inbox = next(f for f in folders if f["is_system"])
-    cr = await client.post(
-        "/api/v1/shares",
-        headers=auth_headers,
-        json={"target_type": "folder", "target_id": inbox["id"], "password": "secret1"},
-    )
-    assert cr.status_code == 200
-    token = cr.json()["token"]
-    r = await client.get(f"/api/v1/shares/{token}?password=secret1")
-    assert r.status_code == 400
-    assert r.json()["error"]["code"] == "password_in_query"
-    # body unlock works
-    r2 = await client.post(
-        f"/api/v1/shares/{token}/unlock",
-        json={"password": "secret1"},
-    )
-    assert r2.status_code == 200

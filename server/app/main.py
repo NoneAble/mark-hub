@@ -21,7 +21,6 @@ from app.api import (
     folders,
     metadata,
     nav,
-    shares,
     system,
     tags,
 )
@@ -166,7 +165,6 @@ app.include_router(folders.router, prefix=API)
 app.include_router(tags.router, prefix=API)
 app.include_router(nav.router, prefix=API)
 app.include_router(backup.router, prefix=API)
-app.include_router(shares.router, prefix=API)
 app.include_router(metadata.router, prefix=API)
 app.include_router(metadata.icons_router)
 

@@ -19,7 +19,6 @@ DELETE FROM tags WHERE user_id NOT IN (SELECT id FROM users);
 DELETE FROM settings WHERE user_id NOT IN (SELECT id FROM users);
 DELETE FROM op_logs WHERE user_id NOT IN (SELECT id FROM users);
 DELETE FROM reorder_clocks WHERE user_id NOT IN (SELECT id FROM users);
-DELETE FROM share_links WHERE user_id NOT IN (SELECT id FROM users);
 DELETE FROM folders WHERE user_id NOT IN (SELECT id FROM users);
 
 -- helper: add FK only when missing

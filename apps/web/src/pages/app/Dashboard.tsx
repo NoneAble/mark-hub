@@ -87,16 +87,15 @@ export function Dashboard() {
       list.push(f);
       byParent.set(f.parent_id, list);
     }
-    const out: { id: string | "all" | "fav"; name: string; icon: string; pad: number; count: number; vis?: string }[] = [
-      { id: "all", name: t("all"), icon: "◉", pad: 0, count: bookmarks.filter((b) => !b.is_archived).length },
-      { id: "fav", name: t("favorites"), icon: "★", pad: 0, count: bookmarks.filter((b) => b.is_favorite && !b.is_archived).length },
+    const out: { id: string | "all" | "fav"; name: string; pad: number; count: number; vis?: string }[] = [
+      { id: "all", name: t("all"), pad: 0, count: bookmarks.filter((b) => !b.is_archived).length },
+      { id: "fav", name: t("favorites"), pad: 0, count: bookmarks.filter((b) => b.is_favorite && !b.is_archived).length },
     ];
     function walk(parent: string | null, pad: number) {
       for (const f of byParent.get(parent) || []) {
         out.push({
           id: f.id,
           name: f.name,
-          icon: f.is_system ? "⬇" : pad > 0 ? "·" : "▣",
           pad,
           count: counts.get(f.id) || 0,
           vis: f.visibility,
@@ -154,21 +153,6 @@ export function Dashboard() {
     await reload();
   }
 
-  async function shareFolder() {
-    if (selected === "all" || selected === "fav") {
-      showToast(t("selectFolderFirst"));
-      return;
-    }
-    try {
-      const r = await api.post<any>("/shares", { folder_id: selected });
-      const url = `${window.location.origin}/s/${r.token || r.id}`;
-      await navigator.clipboard.writeText(url);
-      showToast(t("shareCopied"));
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : t("failed"));
-    }
-  }
-
   const defaultFolderId =
     selected !== "all" && selected !== "fav" ? selected : "";
 
@@ -184,24 +168,21 @@ export function Dashboard() {
               data-testid={typeof n.id === "string" && n.id !== "all" && n.id !== "fav" ? `folder-node-${n.id}` : undefined}
               onClick={() => setSelected(n.id)}
             >
-              <span style={{ paddingLeft: n.pad, width: 15, textAlign: "center", color: "var(--text3)", flex: "none" }}>
-                {n.icon}
+              <span
+                style={{
+                  paddingLeft: n.pad,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {n.name}
               </span>
-              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{n.name}</span>
               {n.vis ? <span style={{ fontSize: 10 }}>{visIcon(n.vis)}</span> : null}
               <span className="folder-count">{n.count}</span>
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className="btn"
-          style={{ marginTop: 10, width: "100%" }}
-          data-testid="dashboard-all"
-          onClick={() => setSelected("all")}
-        >
-          {t("allFolders")}
-        </button>
       </aside>
 
       {/* Mobile: horizontal category chips (prototype narrow layout) */}
@@ -244,9 +225,6 @@ export function Dashboard() {
             {shown.length} {t("itemsUnit")}
           </span>
           <div className="dashboard-toolbar-actions">
-            <button type="button" className="btn btn-soft topbar-btn" onClick={() => void shareFolder()}>
-              ⇗ {t("share")}
-            </button>
             <button type="button" className="btn btn-primary topbar-btn" onClick={() => setAdding(true)}>
               + {t("addBm")}
             </button>

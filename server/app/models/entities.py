@@ -6,7 +6,6 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -151,25 +150,4 @@ class ReorderClock(Base):
     )
 
 
-class ShareLink(Base):
-    __tablename__ = "share_links"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    target_type: Mapped[str] = mapped_column(String(32), default="folder")  # folder|bookmark|board
-    target_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-
-class RateLimit(Base):
-    """Shared durable rate-limit counters (R4-F012) — share unlock etc."""
-
-    __tablename__ = "rate_limits"
-
-    key: Mapped[str] = mapped_column(String(255), primary_key=True)
-    window_start: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

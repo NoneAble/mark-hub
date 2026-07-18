@@ -143,7 +143,7 @@ export function AdminFolders() {
         >
           {!f.is_system ? <span className="drag-handle">⠿</span> : <span style={{ width: 13 }} />}
           <span className="manage-name">
-            {f.is_system ? "📥" : "▣"} {f.name}
+            {f.name}
             {f.is_system ? (
               <span className="badge badge-accent">{t("systemCategory")}</span>
             ) : null}

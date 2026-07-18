@@ -521,6 +521,10 @@ div.field {
   padding: 2px 7px;
   font-weight: 500;
 }
+.tag-chip.active {
+  color: #fff;
+  background: var(--accent);
+}
 .chip {
   display: inline-flex;
   align-items: center;
@@ -693,7 +697,7 @@ div.field {
   transform: translateY(-2px);
   border-color: var(--accent);
 }
-.bm-card a.bm-title {
+.bm-card .bm-title {
   font-weight: 600;
   font-size: 13px;
   color: var(--text);

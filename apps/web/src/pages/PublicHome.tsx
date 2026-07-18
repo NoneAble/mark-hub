@@ -83,6 +83,20 @@ function filterTree(nodes: NavNode[], qq: string): NavNode[] {
     .filter(Boolean) as NavNode[];
 }
 
+function hasTag(n: NavNode, tag: string): boolean {
+  return (n.tags || []).some((t) => (typeof t === "string" ? t : t.name) === tag);
+}
+
+function filterTreeByTag(nodes: NavNode[], tag: string): NavNode[] {
+  return nodes
+    .map((n) => {
+      if (n.type === "bookmark") return hasTag(n, tag) ? n : null;
+      const kids = filterTreeByTag(n.children || [], tag);
+      return kids.length ? { ...n, children: kids } : null;
+    })
+    .filter(Boolean) as NavNode[];
+}
+
 type HomeFolder = FolderLike & { visibility?: string; sort_order?: number };
 type HomeBookmark = {
   id: string;
@@ -159,6 +173,7 @@ export function PublicHome() {
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<string | "all">("all");
+  const [selTag, setSelTag] = useState<string | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [editing, setEditing] = useState<NavNode | null>(null);
   const [adding, setAdding] = useState(false);
@@ -221,8 +236,9 @@ export function PublicHome() {
       const node = find(tree);
       base = node ? [node] : [];
     }
+    if (selTag) base = filterTreeByTag(base, selTag);
     return filterTree(base, qq);
-  }, [tree, selected, q]);
+  }, [tree, selected, selTag, q]);
 
   const groups = useMemo(() => {
     if (selected === "all") {
@@ -359,11 +375,8 @@ export function PublicHome() {
           <button
             key={`tag-${tg}`}
             type="button"
-            className="chip"
-            onClick={() => {
-              setQ(tg);
-              setSearchOpen(true);
-            }}
+            className={`chip${selTag === tg ? " active" : ""}`}
+            onClick={() => setSelTag((cur) => (cur === tg ? null : tg))}
           >
             #{tg}
           </button>
@@ -405,12 +418,9 @@ export function PublicHome() {
                   <button
                     key={tg}
                     type="button"
-                    className="tag-chip"
+                    className={`tag-chip${selTag === tg ? " active" : ""}`}
                     style={{ cursor: "pointer", border: "none" }}
-                    onClick={() => {
-                      setQ(tg);
-                      setSearchOpen(true);
-                    }}
+                    onClick={() => setSelTag((cur) => (cur === tg ? null : tg))}
                   >
                     #{tg}
                   </button>

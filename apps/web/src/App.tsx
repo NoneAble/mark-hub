@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import { PublicHome } from "./pages/PublicHome";
 import { LoginPage } from "./pages/LoginPage";
-import { SharePage } from "./pages/SharePage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { AdminBookmarks } from "./pages/admin/Bookmarks";
 import { AdminFolders } from "./pages/admin/Folders";
@@ -30,7 +29,6 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<PublicHome />} />
-      <Route path="/s/:token" element={<SharePage />} />
       <Route path="/admin/login" element={<LoginPage />} />
       <Route
         path="/admin"

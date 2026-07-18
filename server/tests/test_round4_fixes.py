@@ -36,7 +36,6 @@ async def test_openapi_paths_cover_core_collections():
         "/api/v1/bookmarks:",
         "/api/v1/folders:",
         "/api/v1/tags:",
-        "/api/v1/shares:",
         "/api/v1/backup/s3:",
     ):
         assert needle in text, f"missing {needle}"

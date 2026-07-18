@@ -65,6 +65,7 @@ export function BookmarkCard({
                 href={bm.url}
                 target="_blank"
                 rel="noreferrer"
+                title={bm.title}
                 onClick={(e) => {
                   if (editMode) e.preventDefault();
                 }}
@@ -72,7 +73,9 @@ export function BookmarkCard({
                 {bm.title}
               </a>
             ) : (
-              <span className="bm-title grow">{bm.title}</span>
+              <span className="bm-title grow" title={bm.title}>
+                {bm.title}
+              </span>
             )}
             {bm.visibility ? (
               <span style={{ fontSize: 10, flex: "none" }} title={bm.visibility}>

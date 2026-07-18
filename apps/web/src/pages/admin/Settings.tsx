@@ -84,7 +84,7 @@ function AccountSection() {
         { current_password, new_username, new_password: new_password || undefined },
       );
       setUser(r);
-      setMsg("Updated");
+      setMsg(t("updated"));
       setCurrent("");
       setPassword("");
     } catch (err) {
@@ -99,13 +99,13 @@ function AccountSection() {
           className="card"
           style={{ marginBottom: 14, borderColor: "var(--warn)", background: "rgba(217,119,6,.06)" }}
         >
-          You must change the default password before continuing. {t("mustChangePassword")}
+          {t("mustChangePassword")}
         </div>
       ) : null}
       <form className="card stack" onSubmit={(e) => void onSubmit(e)}>
         <div className="settings-section-title">{t("account")}</div>
         <label className="field">
-          Current password
+          {t("currentPassword")}
           <input
             className="input"
             type="password"
@@ -115,7 +115,7 @@ function AccountSection() {
           />
         </label>
         <label className="field">
-          Username
+          {t("username")}
           <input
             className="input"
             value={new_username}
@@ -123,7 +123,7 @@ function AccountSection() {
           />
         </label>
         <label className="field">
-          New password
+          {t("newPassword")}
           <input
             className="input"
             type="password"
@@ -136,7 +136,7 @@ function AccountSection() {
         {msg ? <div className="success">{msg}</div> : null}
         <div>
           <button className="btn btn-primary" type="submit">
-            Update credentials
+            {t("updateCredentials")}
           </button>
         </div>
       </form>

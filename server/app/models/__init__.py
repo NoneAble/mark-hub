@@ -3,10 +3,8 @@ from app.models.entities import (
     BookmarkTag,
     Folder,
     OpLog,
-    RateLimit,
     ReorderClock,
     Setting,
-    ShareLink,
     Tag,
     User,
 )
@@ -20,6 +18,4 @@ __all__ = [
     "Setting",
     "OpLog",
     "ReorderClock",
-    "ShareLink",
-    "RateLimit",
 ]

@@ -645,90 +645,6 @@ async function testAtomicFailures(stateDir, restoreContent) {
   }
 }
 
-async function testExpiry(worker, token) {
-  const bookmark = await request(worker, "POST", "/api/v1/bookmarks", {
-    token,
-    body: {
-      title: "Expiry target",
-      url: "https://fixture.example/expiry",
-    },
-  });
-  assert.equal(bookmark.status, 200, bookmark.text);
-  const create = (expiresAt) =>
-    request(worker, "POST", "/api/v1/shares", {
-      token,
-      body: {
-        target_type: "bookmark",
-        target_id: bookmark.json.id,
-        expires_at: expiresAt,
-      },
-    });
-  const past = await create("2025-01-02T03:04:05+08:00");
-  assert.equal(past.status, 200, past.text);
-  assert.equal(past.json.expires_at, "2025-01-01T19:04:05.000Z");
-  const expired = await request(worker, "GET", `/api/v1/shares/${past.json.token}`);
-  assert.equal(expired.status, 410, expired.text);
-
-  const future = await create("2099-01-02T03:04:05-05:30");
-  assert.equal(future.status, 200, future.text);
-  assert.equal(future.json.expires_at, "2099-01-02T08:34:05.000Z");
-  const resolved = await request(worker, "GET", `/api/v1/shares/${future.json.token}`);
-  assert.equal(resolved.status, 200, resolved.text);
-  for (const invalid of [
-    "2026-02-30T00:00:00Z",
-    "2026-01-01T00:00:00",
-    " 2026-01-01T00:00:00Z",
-    123,
-  ]) {
-    const response = await create(invalid);
-    assert.equal(response.status, 400, `invalid expiry ${JSON.stringify(invalid)}: ${response.text}`);
-  }
-}
-
-async function testShareUnlockThrottle(worker, token) {
-  const bookmark = await request(worker, "POST", "/api/v1/bookmarks", {
-    token,
-    body: {
-      title: "Protected share target",
-      url: "https://fixture.example/protected-share",
-    },
-  });
-  assert.equal(bookmark.status, 200, bookmark.text);
-  const share = await request(worker, "POST", "/api/v1/shares", {
-    token,
-    body: {
-      target_type: "bookmark",
-      target_id: bookmark.json.id,
-      password: "secret-pass",
-    },
-  });
-  assert.equal(share.status, 200, share.text);
-  const route = `/api/v1/shares/${share.json.token}/unlock`;
-
-  const valid = await request(worker, "POST", route, {
-    headers: {
-      "CF-Connecting-IP": "203.0.113.1",
-      "X-Forwarded-For": "198.51.100.1",
-    },
-    body: { password: "secret-pass" },
-  });
-  assert.equal(valid.status, 200, valid.text);
-
-  const statuses = [];
-  for (let attempt = 0; attempt < 15; attempt += 1) {
-    const failed = await request(worker, "POST", route, {
-      headers: {
-        "CF-Connecting-IP": `203.0.113.${attempt + 2}`,
-        "X-Forwarded-For": `198.51.100.${attempt + 2}`,
-      },
-      body: { password: "wrong" },
-    });
-    statuses.push(failed.status);
-    if (failed.status === 429) break;
-  }
-  assert.deepEqual(statuses, [...Array(10).fill(401), 429]);
-}
-
 async function testMalformedImports(stateDir) {
   const worker = await startWorker(stateDir, "malformed-imports");
   try {
@@ -1035,7 +951,6 @@ async function testPopulatedMigration() {
      INSERT INTO settings (user_id,key,value,is_secret) VALUES ('pop-user','key','value',0);
      INSERT INTO op_logs (user_id,entity_type,entity_id,action,snapshot,created_at) VALUES ('pop-user','bookmark','pop-bookmark','create','{}','2026-01-01');
      INSERT INTO reorder_clocks (user_id,scope,parent_id,updated_at) VALUES ('pop-user','folder','','2026-01-01');
-     INSERT INTO share_links VALUES ('pop-share','pop-user','pop-token','bookmark','pop-bookmark',NULL,NULL,'2026-01-01');
 
      INSERT INTO folders VALUES ('orphan-parent','pop-user','missing-folder','Repair parent',4,'private',0,NULL,'2026-01-01','2026-01-01');
      INSERT INTO folders VALUES ('orphan-user-folder','missing-user',NULL,'Delete folder',5,'private',0,NULL,'2026-01-01','2026-01-01');
@@ -1047,7 +962,6 @@ async function testPopulatedMigration() {
      INSERT INTO settings (user_id,key,value,is_secret) VALUES ('missing-user','delete-setting','value',0);
      INSERT INTO op_logs (user_id,entity_type,entity_id,action,snapshot,created_at) VALUES ('missing-user','bookmark','missing','create','{}','2026-01-01');
      INSERT INTO reorder_clocks (user_id,scope,parent_id,updated_at) VALUES ('missing-user','folder','','2026-01-01');
-     INSERT INTO share_links VALUES ('orphan-user-share','missing-user','delete-token','bookmark','missing',NULL,NULL,'2026-01-01');
 `,
     "utf8",
   );
@@ -1084,8 +998,7 @@ async function testPopulatedMigration() {
            (SELECT COUNT(*) FROM folders WHERE id = 'orphan-parent' AND parent_id IS NULL) AS repaired_parent,
            (SELECT COUNT(*) FROM folders WHERE id = 'orphan-user-folder') +
            (SELECT COUNT(*) FROM bookmarks WHERE id IN ('orphan-folder-bookmark','orphan-user-bookmark')) +
-           (SELECT COUNT(*) FROM tags WHERE id = 'orphan-user-tag') +
-           (SELECT COUNT(*) FROM share_links WHERE id = 'orphan-user-share') AS remaining_orphans`,
+           (SELECT COUNT(*) FROM tags WHERE id = 'orphan-user-tag') AS remaining_orphans`,
       )
     ).stdout,
   )[0];
@@ -1216,20 +1129,11 @@ async function main() {
     await importAndAssert(destinations[format], format, exports[format]);
   }
 
-  phase("strict share expiry and public resolution");
+  phase("unauthenticated access rejection");
   const securityWorker = await startWorker(destinations.json, "security-expiry");
   try {
     const unauthenticated = await request(securityWorker, "GET", "/api/v1/bookmarks");
     assert.equal(unauthenticated.status, 401, unauthenticated.text);
-    const token = await login(securityWorker);
-    await testExpiry(securityWorker, token);
-    await testShareUnlockThrottle(securityWorker, token);
-    const queryPassword = await request(
-      securityWorker,
-      "GET",
-      "/api/v1/shares/not-a-token?password=secret",
-    );
-    assert.equal(queryPassword.status, 400, queryPassword.text);
   } finally {
     await stopWorker(securityWorker);
   }

@@ -49,8 +49,6 @@ const FOLDER_DELETE_MODES = new Set<FolderDeleteMode>([
   "cascade_soft_delete",
 ]);
 
-const SHARE_MAX_ATTEMPTS = 10;
-const SHARE_WINDOW_MS = 300_000;
 const RESTORE_STAGE_CHUNK_BYTES = 1_500_000;
 const PORTABLE_BACKUP_METADATA_FORMAT = "markhub-portable-metadata";
 
@@ -128,56 +126,6 @@ function decodePortableBackupMetadata(encoded: string): PortableBackupMetadata |
   } catch {
     return null;
   }
-}
-
-function normalizeShareExpiry(value: unknown): string | null | Response {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "string" || value.trim() !== value || !value) {
-    return err("validation", "expires_at must be an ISO-8601 timestamp with timezone or null");
-  }
-  const match = value.match(
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/,
-  );
-  if (!match) {
-    return err("validation", "expires_at must be an ISO-8601 timestamp with timezone or null");
-  }
-  const [, ys, mos, ds, hs, mis, ss, fraction = "", zone] = match;
-  const [year, month, day, hour, minute, second] = [ys, mos, ds, hs, mis, ss].map(Number);
-  const millis = Number(fraction.padEnd(3, "0"));
-  const calendar = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millis));
-  if (
-    year < 1 ||
-    calendar.getUTCFullYear() !== year ||
-    calendar.getUTCMonth() !== month - 1 ||
-    calendar.getUTCDate() !== day ||
-    calendar.getUTCHours() !== hour ||
-    calendar.getUTCMinutes() !== minute ||
-    calendar.getUTCSeconds() !== second ||
-    calendar.getUTCMilliseconds() !== millis
-  ) {
-    return err("validation", "expires_at is not a valid calendar timestamp");
-  }
-  if (zone !== "Z") {
-    const zoneMatch = zone.match(/^([+-])(\d{2}):(\d{2})$/)!;
-    const zoneHour = Number(zoneMatch[2]);
-    const zoneMinute = Number(zoneMatch[3]);
-    if (zoneHour > 23 || zoneMinute > 59) {
-      return err("validation", "expires_at has an invalid timezone offset");
-    }
-  }
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) {
-    return err("validation", "expires_at is not a valid ISO-8601 timestamp");
-  }
-  return new Date(timestamp).toISOString();
-}
-
-function shareIsExpired(expiresAt: unknown): boolean {
-  if (expiresAt === null || expiresAt === undefined || expiresAt === "") return false;
-  if (typeof expiresAt !== "string") return true;
-  const parsed = normalizeShareExpiry(expiresAt);
-  if (parsed instanceof Response || parsed === null) return true;
-  return Date.parse(parsed) <= Date.now();
 }
 
 function requireJwt(env: Env): string {
@@ -813,78 +761,6 @@ async function setBookmarkTags(
   return out;
 }
 
-/** Durable share unlock throttle via D1 (R4-F012). */
-function shareThrottleKeys(token: string, clientIp: string | null): string[] {
-  return [`share_unlock:${token}|all`, `share_unlock:${token}|${clientIp || "unknown"}`];
-}
-
-async function checkShareRateLimit(
-  env: Env,
-  token: string,
-  clientIp: string | null,
-): Promise<Response | null> {
-  const nowMs = Date.now();
-  const windowStart = nowMs - SHARE_WINDOW_MS;
-  try {
-    await env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS rate_limits (
-        key TEXT PRIMARY KEY,
-        window_start INTEGER NOT NULL,
-        count INTEGER NOT NULL DEFAULT 0
-      )`,
-    ).run();
-    for (const key of shareThrottleKeys(token, clientIp)) {
-      const row = await env.DB.prepare("SELECT window_start, count FROM rate_limits WHERE key = ?")
-        .bind(key)
-        .first<{ window_start: number; count: number }>();
-      if (row && row.window_start >= windowStart && row.count >= SHARE_MAX_ATTEMPTS) {
-        logWarn("share_unlock_throttled", { token_prefix: token.slice(0, 6), ip: clientIp || "-" });
-        return err("rate_limited", "Too many unlock attempts; try again later", 429);
-      }
-    }
-  } catch (e) {
-    logWarn("share_rate_limit_check_failed", {
-      message: e instanceof Error ? e.message : String(e),
-    });
-  }
-  return null;
-}
-
-async function recordFailedShareAttempt(env: Env, token: string, clientIp: string | null) {
-  const nowMs = Date.now();
-  const windowStart = nowMs - SHARE_WINDOW_MS;
-  try {
-    await env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS rate_limits (
-        key TEXT PRIMARY KEY,
-        window_start INTEGER NOT NULL,
-        count INTEGER NOT NULL DEFAULT 0
-      )`,
-    ).run();
-    for (const key of shareThrottleKeys(token, clientIp)) {
-      const row = await env.DB.prepare("SELECT window_start, count FROM rate_limits WHERE key = ?")
-        .bind(key)
-        .first<{ window_start: number; count: number }>();
-      if (!row || row.window_start < windowStart) {
-        await env.DB.prepare(
-          `INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
-           ON CONFLICT(key) DO UPDATE SET window_start = excluded.window_start, count = 1`,
-        )
-          .bind(key, nowMs)
-          .run();
-      } else {
-        await env.DB.prepare("UPDATE rate_limits SET count = count + 1 WHERE key = ?")
-          .bind(key)
-          .run();
-      }
-    }
-  } catch (e) {
-    logWarn("share_rate_limit_record_failed", {
-      message: e instanceof Error ? e.message : String(e),
-    });
-  }
-}
-
 async function assertFolderParentOk(
   env: Env,
   userId: string,
@@ -973,50 +849,6 @@ function folderPathSegments(folders: any[]): Map<string, string[]> {
   return cache;
 }
 
-
-/**
- * Resolve public share payload. Soft-deleted / foreign targets return null so
- * callers respond 404 (RQG-SHARE-001 — live owner-owned rows only).
- */
-async function resolveSharePayload(
-  env: Env,
-  link: any,
-): Promise<Record<string, unknown> | null> {
-  const payload: Record<string, unknown> = {
-    target_type: link.target_type,
-    target_id: link.target_id,
-  };
-  if (link.target_type === "bookmark") {
-    const b = await env.DB.prepare(
-      "SELECT title, url, description FROM bookmarks WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
-    )
-      .bind(link.target_id, link.user_id)
-      .first<any>();
-    if (!b) return null;
-    payload.bookmark = { title: b.title, url: b.url, description: b.description };
-  } else if (link.target_type === "folder") {
-    const f = await env.DB.prepare(
-      "SELECT id, name FROM folders WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
-    )
-      .bind(link.target_id, link.user_id)
-      .first<any>();
-    if (!f) return null;
-    payload.folder = { name: f.name, id: f.id };
-    const bms = (
-      await env.DB.prepare(
-        "SELECT title, url, description FROM bookmarks WHERE folder_id = ? AND user_id = ? AND deleted_at IS NULL",
-      )
-        .bind(f.id, link.user_id)
-        .all<any>()
-    ).results;
-    payload.bookmarks = bms.map((b) => ({
-      title: b.title,
-      url: b.url,
-      description: b.description,
-    }));
-  }
-  return payload;
-}
 
 /** Shared lossless JSON export for manual + remote backups (RQG-BACKUP-001). */
 async function exportJsonPayload(env: Env, userId: string) {
@@ -1313,15 +1145,6 @@ async function runWebdavBackup(
 
 
 
-function clientIp(req: Request): string | null {
-  // Cloudflare supplies this header at the runtime boundary. Do not fall back
-  // to a forwarding chain that the original caller can choose.
-  return req.headers.get("CF-Connecting-IP") || null;
-}
-
-
-
-
 
 /* ---------- page metadata + favicon fetch (parity with server /metadata) ---------- */
 
@@ -1588,51 +1411,6 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       },
     });
   }
-
-  // Public share resolution (no JWT) — must run before auth gate
-  if (path.match(/^\/shares\/[^/]+\/unlock$/) && method === "POST") {
-    const token = path.split("/")[2]!;
-    const body = (await req.json()) as { password?: string };
-    const ip = clientIp(req);
-    const link = await env.DB.prepare("SELECT * FROM share_links WHERE token=?")
-      .bind(token)
-      .first<any>();
-    if (!link) return err("not_found", "Share not found", 404);
-    if (shareIsExpired(link.expires_at)) {
-      return err("expired", "Share link expired", 410);
-    }
-    if (link.password_hash) {
-      const limited = await checkShareRateLimit(env, token, ip);
-      if (limited) return limited;
-      if (!body.password || !(await verifyPassword(body.password, link.password_hash))) {
-        await recordFailedShareAttempt(env, token, ip);
-        logInfo("share_unlock_failed", { token_prefix: token.slice(0, 6), ip: ip || "-" });
-        return err("password_required", "Password required or incorrect", 401);
-      }
-      logInfo("share_unlock_ok", { token_prefix: token.slice(0, 6), ip: ip || "-" });
-    }
-    const unlocked = await resolveSharePayload(env, link);
-    if (!unlocked) return err("not_found", "Share target not found", 404);
-    return json(unlocked);
-  }
-  if (path.match(/^\/shares\/[^/]+$/) && method === "GET") {
-    const token = path.slice("/shares/".length);
-    if (url.searchParams.has("password")) {
-      return err("password_in_query", "Pass password via POST unlock body", 400);
-    }
-    const link = await env.DB.prepare("SELECT * FROM share_links WHERE token=?")
-      .bind(token)
-      .first<any>();
-    if (!link) return err("not_found", "Share not found", 404);
-    if (shareIsExpired(link.expires_at)) {
-      return err("expired", "Share link expired", 410);
-    }
-    if (link.password_hash) return err("password_required", "Password required", 401);
-    const resolved = await resolveSharePayload(env, link);
-    if (!resolved) return err("not_found", "Share target not found", 404);
-    return json(resolved);
-  }
-
 
   if (path === "/nav/public" && method === "GET") {
     const user = await env.DB.prepare("SELECT id FROM users LIMIT 1").first<{ id: string }>();
@@ -3621,61 +3399,6 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     await writeOp(env, user.id, "tag", id, "delete", { id });
     return json({ ok: true, id });
   }
-
-
-  // Shares
-  if (path === "/shares" && method === "GET") {
-    const rows = (
-      await env.DB.prepare(
-        "SELECT * FROM share_links WHERE user_id=? ORDER BY created_at DESC",
-      )
-        .bind(user.id)
-        .all<any>()
-    ).results;
-    return json({
-      items: rows.map((r) => ({
-        id: r.id,
-        token: String(r.token).slice(0, 6) + "…",
-        target_type: r.target_type,
-        target_id: r.target_id,
-        has_password: !!r.password_hash,
-        expires_at: r.expires_at || null,
-        created_at: r.created_at,
-      })),
-    });
-  }
-  if (path === "/shares" && method === "POST") {
-    const body = (await req.json()) as any;
-    const token = b64url(crypto.getRandomValues(new Uint8Array(12)));
-    const id = uuid();
-    const t = now();
-    let ph: string | null = null;
-    if (body.password) ph = await hashPassword(body.password);
-    const expiresAt = normalizeShareExpiry(body.expires_at);
-    if (expiresAt instanceof Response) return expiresAt;
-    await env.DB.prepare(
-      "INSERT INTO share_links (id, user_id, token, target_type, target_id, password_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-      .bind(id, user.id, token, body.target_type, body.target_id, ph, expiresAt, t)
-      .run();
-    return json({
-      id,
-      token,
-      target_type: body.target_type,
-      target_id: body.target_id,
-      has_password: !!body.password,
-      expires_at: expiresAt,
-      url_path: `/s/${token}`,
-    });
-  }
-  if (path.startsWith("/shares/") && method === "DELETE") {
-    const token = path.slice("/shares/".length);
-    await env.DB.prepare("DELETE FROM share_links WHERE token=? AND user_id=?")
-      .bind(token, user.id)
-      .run();
-    return json({ ok: true });
-  }
-
 
 
   // WebDAV config

@@ -169,30 +169,6 @@ async function main() {
   });
   assert("import_html", r.status === 200 && (r.json?.created ?? 0) >= 1, r.text.slice(0, 200));
 
-  // shares payload — use a dedicated live bookmark
-  r = await req("POST", "/api/v1/bookmarks", {
-    token,
-    body: {
-      title: "Share Target",
-      url: `https://share.example/target-${Date.now()}`,
-      folder_id: targetFolder,
-      visibility: "public",
-    },
-  });
-  const shareBmId = r.json?.id;
-  r = await req("POST", "/api/v1/shares", {
-    token,
-    body: { target_type: "bookmark", target_id: shareBmId },
-  });
-  assert("share_create", r.status === 200 && r.json?.token, r.text.slice(0, 160));
-  const shareToken = r.json?.token;
-  r = await req("GET", `/api/v1/shares/${shareToken}`);
-  assert(
-    "share_get_payload",
-    r.status === 200 && r.json?.bookmark?.url,
-    r.text.slice(0, 200),
-  );
-
   // backup s3 GET test without config
   r = await req("GET", "/api/v1/backup/s3?test=true", { token });
   assert("s3_test_route", r.status === 200 && r.json && "ok" in r.json, r.text.slice(0, 160));

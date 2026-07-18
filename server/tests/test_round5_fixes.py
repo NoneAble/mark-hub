@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pytest
 from app.api import system as system_api
-from app.main import app
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
@@ -112,47 +111,3 @@ async def test_backup_html_export_escapes(client: AsyncClient, auth_headers):
     assert "<img" not in r.text
     assert "&lt;img" in r.text or "img src=x" not in r.text
     assert "safe.example" in r.text
-
-
-@pytest.mark.asyncio
-async def test_share_rate_limit_persists(client: AsyncClient, auth_headers):
-    """Unlock throttling is durable and ignores spoofed forwarding headers."""
-    h = auth_headers
-    folders = (await client.get("/api/v1/folders", headers=h)).json()["items"]
-    inbox = next(f for f in folders if f["is_system"])
-    share = (
-        await client.post(
-            "/api/v1/shares",
-            headers=h,
-            json={
-                "target_type": "folder",
-                "target_id": inbox["id"],
-                "password": "secret-pass",
-            },
-        )
-    ).json()
-    token = share["token"]
-
-    valid = await client.post(
-        f"/api/v1/shares/{token}/unlock",
-        headers={"X-Forwarded-For": "198.51.100.1"},
-        json={"password": "secret-pass"},
-    )
-    assert valid.status_code == 200, valid.text
-
-    # A direct Docker caller must not gain a fresh bucket by rotating this header.
-    statuses: list[int] = []
-    for attempt in range(15):
-        transport = ASGITransport(
-            app=app, client=(f"203.0.113.{attempt + 1}", 50000 + attempt)
-        )
-        async with AsyncClient(transport=transport, base_url="http://test") as attacker:
-            r = await attacker.post(
-                f"/api/v1/shares/{token}/unlock",
-                headers={"X-Forwarded-For": f"198.51.100.{attempt + 2}"},
-                json={"password": "wrong"},
-            )
-        statuses.append(r.status_code)
-        if r.status_code == 429:
-            break
-    assert statuses == [401] * 10 + [429]
