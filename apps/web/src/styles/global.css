@@ -678,13 +678,24 @@ div.field {
   flex-wrap: wrap;
   align-items: center;
   margin-top: auto;
+  /* Reserve the action buttons' height even when they are not rendered
+     (public page outside edit mode), so toggling edit mode doesn't shift tags */
+  min-height: 26px;
 }
 .bm-actions {
   margin-left: auto;
   display: flex;
   gap: 2px;
+  align-items: center;
   opacity: 0;
   transition: opacity 0.12s ease;
+}
+.bm-actions .btn-icon {
+  height: 26px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .bm-actions.always,
 .bm-card:hover .bm-actions,
@@ -1458,6 +1469,10 @@ div.field {
     min-width: 36px;
     min-height: 36px;
     padding: 6px;
+  }
+  /* Match the 36px touch-target action buttons so edit mode doesn't shift tags */
+  .bm-meta {
+    min-height: 36px;
   }
   /* Prevent iOS Safari auto-zoom on focus */
   .input,
