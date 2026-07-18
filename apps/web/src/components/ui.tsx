@@ -205,20 +205,28 @@ function itemMatches(item: SearchableItem, qq: string): boolean {
 
 /** Register ⌘/Ctrl+K to open search (VuePress-style). */
 export function useSearchHotkey(onOpen: () => void, enabled = true) {
-  const openRef = useRef(onOpen);
-  openRef.current = onOpen;
+  return useModKeyHotkey("k", onOpen, enabled);
+}
+
+/** Register ⌘/Ctrl+E to toggle edit mode. */
+export function useEditHotkey(onToggle: () => void, enabled = true) {
+  return useModKeyHotkey("e", onToggle, enabled);
+}
+
+function useModKeyHotkey(key: string, onTrigger: () => void, enabled = true) {
+  const triggerRef = useRef(onTrigger);
+  triggerRef.current = onTrigger;
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key.toLowerCase() !== "k") return;
-      // Skip when a real modal form input is focused and user is typing a shortcut conflict — still open search like VuePress
+      if (e.key.toLowerCase() !== key) return;
       e.preventDefault();
-      openRef.current();
+      triggerRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled]);
+  }, [enabled, key]);
 }
 
 export function SearchModal({

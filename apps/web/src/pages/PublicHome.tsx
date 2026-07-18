@@ -9,6 +9,7 @@ import {
   SearchField,
   SearchModal,
   Toast,
+  useEditHotkey,
   useSearchHotkey,
   useToast,
 } from "../components/ui";
@@ -218,6 +219,7 @@ export function PublicHome() {
   );
 
   useSearchHotkey(() => setSearchOpen(true));
+  useEditHotkey(() => setEditMode((v) => !v), !!token);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
