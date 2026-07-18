@@ -11,7 +11,7 @@ binding = "DB"
 database_name = "markhub"
 # Placeholder — the Deploy to Cloudflare flow provisions a real database and
 # rewrites this id; for manual deploys, replace it with your database id.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "d4e64eb9-3ee4-4f17-8f4d-29a9f6af5299"
 migrations_dir = "apps/worker/migrations"
 
 [assets]
