@@ -1,143 +1,200 @@
-# MarkHub Known Issues and Remediation TODO
+# MarkHub Known Issues 与修复参考
 
-最后核对：2026-07-13
+最后核对：2026-07-18（commit `5cc1ee6`）。本轮已将全部条目逐条对照当前实现重新验证并改写，删除了失效证据，行号全部刷新。
 
-本文记录当前代码中仍可确认、但本轮未修改的核心与非核心问题。它是人工维护的工程清单，不受 workflow 自动生成的 `workflow-review-todo.md` 管理。
+阅读约定（写给后续修复会话）：
+
+- 行号基于 2026-07-18 的代码，会随提交漂移；每条证据都同时给出**函数名或搜索锚点**，定位以锚点为准。
+- 每条包含：现状结论 → 证据 → 复现 → 修复方案 → 验收。修复时先跑一遍"复现"确认问题仍在。
+- 状态只有两种：`Open`、`Open（部分修复）`。关闭条件见文末"关闭规则"。
 
 优先级：
 
 - P0：可能造成数据损坏，或破坏恢复原子性。
 - P1：核心功能或发布验收不能可靠成立。
-- P2：测试、部署或维护问题，会降低持续交付可靠性。
+- P2：测试、部署或维护问题，降低持续交付可靠性。
 - P3：维护性改进，不直接影响当前主要功能。
 
-## MH-RESTORE-001：`replace_all` 缺少用户级互斥
+## 总览
 
-- 优先级：P0
-- 分类：核心 / 数据完整性
-- 状态：Open
+| ID | 优先级 | 状态 | 一句话 | 主要触点 |
+|---|---|---|---|---|
+| MH-RESTORE-001 | P0 | Open（已改写） | 恢复无用户级互斥，快照过期窗口可产生 A∪B / 标签丢失 | `atomicReplaceAllRestore` |
+| MH-RESTORE-002 | P1 | Open | FTS 重建在 cutover 之外，失败被吞掉仍返回 `atomic:true` | `atomicReplaceAllRestore` 尾部 |
+| MH-RESTORE-003 | P1 | Open | `restore_staging` 无 TTL，Worker 中途被杀会永久残留 | `0006_restore_staging.sql`、`scheduled` |
+| MH-EXPORT-001 | P1 | Open | 导出按每 80 条书签查一次标签，5 万条超 D1 Free 查询预算 | `tagsForBookmarks`、`exportJsonPayload` |
+| MH-EXPORT-002 | P1 | Open | portable metadata 经 `String.fromCharCode(...bytes)` 展开，大导出触发 `RangeError` | `b64url`、`portableBackupMetadata` |
+| MH-BACKUP-001 | P2 | Open（部分修复） | Worker S3 listing 不分页；FastAPI retention 错误只留最后一条 | `pruneS3Backups`、`s3ListObjects`、`remote_backup.py` |
+| MH-BACKUP-002 | P1 | Open | `last_retention_error` 已持久化但 GET 不返回、UI 不显示 | 各 `/backup/*` GET、`SettingsModal` |
+| MH-BACKUP-003 | P1 | Open | scheduled S3 分支在两个 runtime 都没有真实回归 | `scheduled`、两个 r3 测试 |
+| MH-CF-001 | P1 | Open | assets 缺 `run_worker_first`，navigate 请求可能吃掉 `/api/*` | `wrangler.toml` |
+| MH-UI-001 | P2 | Open | 设置弹窗缺 `keep_backups` 控件，WebDAV 缺 `backup_time` | `SettingsModal.tsx` |
+| MH-TEST-001 | P1 | Open | `pnpm test` 不含 server/Docker/E2E，不是完整 release gate | 根 `package.json` |
+| MH-TEST-002 | P2 | Open | Docker 测试 cleanup 失败仍可能退出 0 | `test-docker-deploy.sh` |
+| MH-TEST-003 | P2 | Open | 测试依赖仓库外 `~/.pi/.../bounded-run.mjs` | 6 处 harness 脚本 |
+| MH-TEST-004 | P1 | Open | "大型恢复"测试默认只有 460 条 | `worker-d1-runtime-test.mjs` |
+| MH-MAINT-001 | P3 | Open | Worker `Env` 手写类型，与 wrangler 配置可漂移 | `index.ts` 头部 |
+| MH-MAINT-002 | P2 | Open | Wrangler 锁 v3、compatibility date 停在 2024-12-01 | `apps/worker/package.json`、`wrangler.toml` |
+
+## 建议修复分组与顺序
+
+同一组的条目触碰同一片代码，应一起设计、一次改完，避免反复重构：
+
+1. **恢复内核组**：MH-RESTORE-001 → 002 → 003。三条全部落在 `atomicReplaceAllRestore` 与 `restore_staging` 表上。给 staging 表加 lease/TTL 字段时一并设计（一次 migration），FTS 归入 cutover batch 时顺带处理。
+2. **导出规模组**：MH-EXPORT-001、MH-EXPORT-002。都在导出链路（`exportJsonPayload` → CSV/HTML metadata），一次改完后用同一个 5 万条数据集验收，同时消解 MH-TEST-004 的一部分。
+3. **备份可观测组**：MH-BACKUP-001、MH-BACKUP-002、MH-UI-001。统一 retention 返回结构 → GET 透出 → UI 展示，是同一条数据流。MH-BACKUP-003 的测试补齐放在这组末尾做验收。
+4. **平台组**：先 MH-CF-001（加 `run_worker_first` 并补 navigate 测试），再 MH-MAINT-002（升 Wrangler 4 + compatibility date），升级时顺带做 MH-MAINT-001（`wrangler types`）。顺序不能反，否则升级会直接暴露 assets routing 行为变化。
+5. **测试基建组**：MH-TEST-003（去掉仓库外依赖）→ MH-TEST-002 → MH-TEST-001（统一 `test:release` 入口）→ MH-TEST-004（5 万条用例挂进 release gate）。003 是其余几条的前置，否则新 gate 在干净环境跑不起来。
+
+---
+
+## MH-RESTORE-001：`replace_all` 缺少用户级互斥（快照过期窗口）
+
+- 优先级：P0 ｜ 分类：核心 / 数据完整性 ｜ 状态：Open
+- 2026-07-18 复核：**问题仍在，但机制已变化，本条为改写版。** 恢复流程已重写为"staging 分块写入 + 单个 `env.DB.batch` 原子 cutover"，旧文档描述的"两个恢复在 cutover 中途交错"已不可能发生（batch 本身原子）。剩余问题是**快照读取与 batch 提交之间没有互斥**。
 
 ### 问题与影响
 
-两个恢复请求，或恢复与普通 CRUD，可以交错执行。最终数据可能不是任一输入的完整快照；恢复期间创建的书签可能穿透 cutover，标签关联也可能被全局删除。
+`atomicReplaceAllRestore` 在请求开头读取 live 快照并据此**预先规划** soft-delete 语句（旧行以 `old_bookmark`/`old_folder` 的 entity_key 写入 staging）。快照之后、batch 提交之前，任何并发写入产生的新行都不在删除集合里：
 
-### 当前证据
+1. 并发双恢复：后提交的 batch 不会删除先提交 batch 插入的行，最终数据为 A∪B，而非任一完整快照。
+2. 恢复期间的普通 CRUD：新建书签会穿透恢复存活。
+3. `bookmark_tags` 的删除语句是**用户全局**的（按 `user_id` 关联全部书签/标签删），并发新建书签的标签关联会被无差别清掉——即使书签本身存活。
 
-- `apps/worker/src/index.ts:3073` 在恢复开始时读取 live snapshot。
-- `apps/worker/src/index.ts:3417` 至 `3429` 分块写入 staging，期间没有用户锁。
-- `apps/worker/src/index.ts:3438` 至 `3533` 才执行 cutover。
-- `apps/worker/src/index.ts:3482` 删除该用户全部 bookmark/tag 关联，而不是只处理本次 snapshot。
-- `apps/worker/migrations/0006_restore_staging.sql:2` 没有用户锁、lease 或 generation 字段。
+### 当前证据（`apps/worker/src/index.ts`）
+
+- `atomicReplaceAllRestore` 定义于 2117 行；live 快照读取在 2130–2150 行。
+- staging 分块写入 2474–2485 行；期间无任何用户锁（全文件 grep 无 lease/mutex/lock 机制）。
+- cutover batch 组装 2494–2586 行，`env.DB.batch(statements)` 在 2589 行。
+- 用户全局 `bookmark_tags` 删除：2536–2541 行（`WHERE bookmark_id IN (SELECT id FROM bookmarks WHERE user_id = ?) OR tag_id IN (...)`）。
+- 旧行 soft-delete 仅限快照集合：2550–2563 行（`WHERE id IN (SELECT entity_key FROM restore_staging ... kind = 'old_bookmark')`）。
+- `apps/worker/migrations/0006_restore_staging.sql` 仍无用户锁、lease 或 generation 字段。
 
 ### 确定性复现
 
-1. 同一用户准备只包含 A 和只包含 B 的两个 `replace_all` payload。
-2. 在两个请求完成 staging、进入 cutover 前设置测试 barrier。
-3. 依次释放 A、B 的 cutover。
-4. 导出最终数据，可观察到 A∪B，而不是严格的 A 或 B。
-5. 在同一 barrier 中创建带标签书签 C，可进一步观察 C 穿透恢复或其标签关联被删除。
+1. 同一用户准备只含 A、只含 B 的两个 `replace_all` payload。
+2. 在两个请求完成 staging、调用 `env.DB.batch` 前设置测试 barrier（可仿照现有 `RESTORE_TEST_FAIL_PHASE` 注入点）。
+3. 依次放行 A、B。导出最终数据可见 A∪B。
+4. 在 barrier 期间创建带标签书签 C：C 存活但其 `bookmark_tags` 关联被清除。
 
-### 修复方向
+### 修复方案
 
-- 使用 Durable Object，或 D1 lock row，为每个用户建立带 `restore_id`、`expires_at` 的原子 lease。
-- 所有书签、文件夹、标签写接口检查同一个 lease，选择串行化或明确返回 `409/423`。
-- cutover 增加 dataset generation/version 前置条件。
-- 将 `bookmark_tags` 删除限定在本次旧 snapshot 或明确的 staged entity 集合内。
+- 用 D1 lock row（或 Durable Object）为每用户建立带 `restore_id`、`expires_at` 的原子 lease；写接口（书签/文件夹/标签/恢复）检查 lease，冲突时返回 `409/423`。
+- cutover batch 增加 generation 前置条件（如 lease row 的 `restore_id` 匹配才执行，可用 batch 内条件 UPDATE + 影响行数校验）。
+- `bookmark_tags` 删除限定在 staged 的 `old_bookmark` 集合与本次 staged 关联内，去掉用户全局删除。
+- lease 字段与 MH-RESTORE-003 的 TTL 字段放进**同一个 migration**。
 
-### 验收方法与通过标准
+### 验收
 
-- 增加确定性双恢复 barrier 测试和恢复期间 CRUD 测试。
-- 双恢复最终只能完整等于一个 payload；另一个请求必须等待或明确失败。
-- CRUD 不得静默穿透，不得丢失标签。
-- lease 超时后可以安全恢复，不能永久锁死用户。
+- 确定性双恢复 barrier 测试：最终数据严格等于其中一个 payload；另一请求等待或明确失败。
+- 恢复期间 CRUD 测试：不得静默穿透、不得丢标签。
+- lease 超时后可重新恢复，不会永久锁死用户。
 
 ## MH-RESTORE-002：FTS 重建不属于原子 cutover
 
-- 优先级：P1
-- 分类：核心 / 数据完整性
-- 状态：Open
+- 优先级：P1 ｜ 分类：核心 / 数据完整性 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。现实现已从旧版的逐行重建改为 batch 内两条 bulk 语句，但仍在 cutover **之后**执行、失败仍被吞掉。
 
 ### 问题与影响
 
-live 数据提交后才重建 FTS。FTS 失败被吞掉，接口仍返回 `atomic: true`，导致恢复成功后的书签可能永久无法搜索。
+live 数据 batch 提交成功后才重建 FTS；FTS batch 失败被空 `catch` 吞掉，接口仍返回 `atomic: true`。恢复"成功"后的书签可能永久无法搜索，且没有任何信号。
 
-### 当前证据
+### 当前证据（`apps/worker/src/index.ts`）
 
-- live cutover 在 `apps/worker/src/index.ts:3533` 完成。
-- FTS 在 `apps/worker/src/index.ts:3547` 至 `3563` 通过第二个 batch 重建。
-- `apps/worker/src/index.ts:3564` 至 `3565` 吞掉失败。
-- `apps/worker/src/index.ts:3575` 无条件返回 `atomic: true`。
+- cutover batch 提交：2589 行。
+- FTS 重建：2603–2619 行（注释 `FTS is optional derived state`，DELETE + INSERT…SELECT 两条 bulk 语句）。
+- 失败吞掉：2620–2622 行 `catch { /* optional */ }`。
+- 无条件 `atomic: true`：2624–2634 行响应体。
+- 搜索依赖该表：FTS 查询在 1782–1808 行。
 
 ### 确定性复现
 
-1. 对 FTS `INSERT` 增加测试故障注入。
-2. 执行包含唯一关键词的 `replace_all`。
-3. 恢复返回 HTTP 200 和 `atomic:true`。
-4. 普通列表可见书签，但用该关键词搜索返回空结果。
+1. 用 `RESTORE_TEST_FAIL_PHASE` 风格的注入让 FTS batch 失败（当前注入点只覆盖 `insert`/`swap` 两阶段，需新增 `fts` 阶段）。
+2. 执行含唯一关键词的 `replace_all` → 返回 200 + `atomic:true`。
+3. 列表可见该书签，但关键词搜索为空。
 
-### 修复方向
+### 修复方案
 
-- 优先将 FTS 删除和重建加入同一 cutover batch，使失败回滚 live 数据。
-- 如果平台限制无法同事务完成，引入明确的 `search_index_status`、可靠重试和 degraded 响应，不能宣称完整原子成功。
+- 首选：把 FTS 的 DELETE/INSERT 两条语句并入 cutover 的同一个 `env.DB.batch`，失败即整体回滚（D1 batch 无语句数上限问题，当前恰好是纯 SQL bulk 语句，合并成本低）。
+- 若实测 batch 语句限制不允许：响应中返回 `search_index_status: degraded`，持久化标记并由 `scheduled` 重试，不得宣称完整原子成功。
 
-### 验收方法与通过标准
+### 验收
 
-- 增加 FTS delete/insert 故障注入。
-- 成功响应后，所有恢复书签必须立即可搜索。
-- FTS 失败时旧 live dataset 保持完整；或者接口明确报告 degraded 状态并自动恢复。
-- 失败路径不得返回虚假的 `atomic:true`。
+- 新增 `fts` 阶段故障注入：失败时要么整体回滚（列表也看不到新数据），要么明确 degraded 且后续自动恢复。
+- 成功响应后所有恢复书签立即可搜索。
+- 失败路径不得返回 `atomic:true`。
+
+## MH-RESTORE-003：staging 数据没有 TTL、lease 或异常回收
+
+- 优先级：P1 ｜ 分类：核心 / 运维与数据完整性 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。成功路径的 staging 清理现在是 cutover batch 的最后一条语句（原子），失败路径有 `cleanupStaging`；但 Worker 在 staging 写入后、batch 前被终止时仍永久残留，且 `scheduled` handler 不清理该表。
+
+### 当前证据
+
+- `apps/worker/migrations/0006_restore_staging.sql`：只有 `restore_id/user_id/kind/entity_key/payload`，无 `created_at/expires_at/status`。
+- 请求内清理：`cleanupStaging`（`index.ts:2468–2472`）与 batch 末尾的 DELETE（2581–2586 行）。
+- `scheduled` handler（`index.ts:3724–3777`）只做 soft-delete GC 与 WebDAV/S3 备份，无 `restore_staging` 清理；全文件中 `restore_staging` 仅出现在恢复代码内。
+
+### 确定性复现
+
+1. staging 写完、batch 前强制终止 Worker（dev 环境 kill 进程即可）。
+2. 重启后 `SELECT COUNT(*) FROM restore_staging` 非零，且不会被任何 scheduled/后续请求清除。
+
+### 修复方案
+
+- migration：为 `restore_staging` 增加 `created_at`（最小方案）或完整的 `status/expires_at/lease owner`（与 MH-RESTORE-001 的 lease 同一个 migration），为过期字段建索引。
+- `scheduled` handler 清理过期且无活跃 lease 的 staging 行；清理必须幂等，不得删除进行中的 restore。
+
+### 验收
+
+- 强制终止测试：残留 staging 在 TTL 内被 scheduled 清除；同一用户随后可正常重新恢复。
+- 活跃恢复的 staging 不被误删。
 
 ## MH-EXPORT-001：5 万条导出超过 D1 Free 查询次数限制
 
-- 优先级：P1
-- 分类：核心 / 规模与部署
-- 状态：Open
+- 优先级：P1 ｜ 分类：核心 / 规模与部署 ｜ 状态：Open
+- 2026-07-18 复核：仍有效，仅行号变化。
 
 ### 问题与影响
 
-标签按每 80 个书签查询一次。5 万条书签约需 625 次标签查询，再加其他查询后会明显超过 D1 Free 每次 Worker invocation 50 次查询的限制。JSON、WebDAV 和 S3 复用该路径。
+标签按每 80 个书签一次查询。5 万条 ≈ 625 次标签查询，加上其余查询远超 D1 Free 单次 invocation 50 次查询的限制。JSON 手动导出、CSV/HTML 导出、WebDAV/S3 备份全部复用该路径。
 
-### 当前证据
+### 当前证据（`apps/worker/src/index.ts`）
 
-- `apps/worker/src/index.ts:453` 至 `481` 使用 `chunkSize = 80`。
-- `apps/worker/src/index.ts:1209` 至 `1226` 的 JSON、WebDAV、S3 共同复用该导出路径。
-- Cloudflare D1 当前限制见 <https://developers.cloudflare.com/d1/platform/limits/>。
-- CSV/HTML 也从 `apps/worker/src/index.ts:5513` 调用同一 export payload。
+- `tagsForBookmarks`：400–428 行，`chunkSize = 80` 在 407 行（注释即"D1 bind limit — chunk"）。
+- `exportJsonPayload`：853–897 行，调用 `tagsForBookmarks`（868 行）；注释标明 manual + remote backups 共用。
+- CSV/HTML/JSON 导出入口：3504 行起（`// CSV/HTML/JSON export — lossless native schema shared with scheduled backups`）。
+- WebDAV/S3 备份经 `runWebdavBackup`/`runS3Backup` 复用同一 payload。
+- D1 限制：<https://developers.cloudflare.com/d1/platform/limits/>。
 
 ### 确定性复现
 
-1. 为单一用户写入 50,000 条带标签书签。
-2. 在 Free D1 环境请求 JSON 导出；或在 harness 中把 D1 查询预算限制为 50。
-3. 标签聚合完成前即可超过查询预算。
-4. WebDAV/S3 立即备份应复现相同失败。
+单用户写入 50,000 条带标签书签，在 Free D1（或把查询预算限制为 50 的 harness）请求 JSON 导出；标签聚合阶段即超预算。
 
-### 修复方向
+### 修复方案
 
-- 使用一次带聚合的 SQL 查询获取书签及标签，或设计总查询数严格小于 50 的分页方案。
-- 同时评估 Worker 内存；必要时采用流式导出或异步写入 R2，避免一次构造全部对象。
+- 一条聚合 SQL 拿到书签+标签（`GROUP_CONCAT` 或 JSON 聚合，FTS 重建语句 2610–2617 行已有同款 JOIN 写法可参考），或设计总查询数 < 50 的分页。
+- 同步评估 Worker 内存；必要时流式导出。
 
-### 验收方法与通过标准
+### 验收
 
-- 在 Free 限制模型下完成 50,000 条带标签书签的 JSON 导出、WebDAV 和 S3 备份。
-- 单 invocation D1 查询数不超过 50。
-- 总数、首尾记录、标签关联和 checksum 与源数据一致。
+- 查询预算 ≤ 50 的模型下完成 5 万条 JSON 导出、WebDAV、S3 备份；总数、首尾记录、标签、checksum 与源一致。
 
-## MH-EXPORT-002：大型 CSV/HTML portable metadata 会触发 `RangeError`
+## MH-EXPORT-002：大型 CSV/HTML portable metadata 触发 `RangeError`
 
-- 优先级：P1
-- 分类：核心 / 规模与可移植性
-- 状态：Open
+- 优先级：P1 ｜ 分类：核心 / 规模与可移植性 ｜ 状态：Open
+- 2026-07-18 复核：仍有效，仅行号变化。
 
 ### 问题与影响
 
-portable metadata 编码将整个 `Uint8Array` 展开为函数参数。较大输入会触发 JavaScript 参数数量上限；5 万条导出远超可安全处理的大小。
+portable metadata 把**全部书签**序列化后经 `b64url` 编码，而 `b64url` 用 `String.fromCharCode(...bytes)` 把整个字节数组展开为函数参数。约 150 KB 即触发 `RangeError: Maximum call stack size exceeded`；5 万条远超该阈值。CSV 首行与 HTML META 都会嵌入完整 metadata。
 
-### 当前证据
+### 当前证据（`apps/worker/src/index.ts`）
 
-- `apps/worker/src/index.ts:91` 至 `106` 把全部书签复制进 metadata。
-- `apps/worker/src/index.ts:266` 至 `269` 调用 `String.fromCharCode(...bytes)`。
-- CSV 和 HTML 分别在 `apps/worker/src/index.ts:5519`、`5643` 使用该 metadata。
-- 当前 Node 环境中约 150 KB 参数即可出现 `RangeError: Maximum call stack size exceeded`。
+- `portableBackupMetadata`：88–104 行，包含全部 `bookmarks`。
+- `b64url`：213–217 行，215 行 `btoa(String.fromCharCode(...bytes))`。
+- CSV 嵌入：3514–3516 行；HTML 嵌入：3640 行。
+- （221 行 JWT 签名与 186 行密码 hash 也用同款展开，但输入恒为小字节数组，不构成问题。）
 
 ### 确定性复现
 
@@ -145,435 +202,270 @@ portable metadata 编码将整个 `Uint8Array` 展开为函数参数。较大输
 node -e 'console.log(String.fromCharCode(...new Uint8Array(150000)).length)'
 ```
 
-随后使用足以生成超过该大小 metadata 的数据请求 CSV/HTML；5 万条输入会稳定超过阈值。
+再用足以生成超阈值 metadata 的数据请求 CSV/HTML 导出。
 
-### 修复方向
+### 修复方案
 
-- 使用固定大小 chunk 编码，禁止把任意长度字节数组展开为参数。
-- 评估将 metadata 分块或压缩，避免在 CSV 首行或单个 HTML META 中复制完整数据。
-- importer 保持向后兼容。
+- `b64url` 改为固定大小 chunk 循环编码（一处修复覆盖所有调用方）。
+- 评估 metadata 压缩/分块；importer（`decodePortableBackupMetadata`，106–129 行）保持向后兼容。
 
-### 验收方法与通过标准
+### 验收
 
-- 50,000 条 CSV 和 HTML 导出不得抛异常。
-- 导出文件可重新导入，并完整保留层级、visibility、顺序、标签和颜色。
-- 峰值内存处于明确预算内，不能因重复 metadata 无界增长。
+- 5 万条 CSV/HTML 导出不抛异常；导出文件可重新导入并完整保留层级、visibility、顺序、标签、颜色。
 
-## MH-RESTORE-003：staging 数据没有 TTL、lease 或异常回收
+## MH-BACKUP-001：retention 失败信息不完整 + Worker S3 listing 不分页
 
-- 优先级：P1
-- 分类：核心 / 运维与数据完整性
-- 状态：Open
+- 优先级：P2（原 P1，部分修复后降级）｜ 分类：核心 / 备份保留 ｜ 状态：Open（部分修复）
+- 2026-07-18 复核：**已部分修复**。Worker 侧 prune 现在收集全部删除错误并返回 `delete failed (N): <首条>`（有失败总数）；FastAPI 的 S3 listing 已实现 `NextContinuationToken` 分页。剩余缺口如下。
 
-### 问题与影响
+### 剩余问题
 
-正常 catch 和成功 cutover 会清理 staging，但 Worker 在中途被终止时会留下永久数据，且没有定时回收机制。
+1. Worker 的 `s3ListObjects` 单次请求、无 continuation 分页（`apps/worker/src/s3.ts:161–187`，`max-keys` 传 1000）；对象超 1000 时后续页不参与 retention。注意：默认 `max-keys` 为 `"1"`（167 行），新调用方若忘传 `maxKeys` 会几乎不列出对象。
+2. 两端都没有结构化的逐 key 失败列表：Worker 只返回 `首条错误 + 计数`（`pruneS3Backups`，`index.ts:930–936`；`pruneWebdavBackups` 同款在 985–990 行）；FastAPI 在循环里**逐次覆盖** `retention_error`，只留最后一条且无计数（`server/app/domain/remote_backup.py` 中 WebDAV prune ~118–128 行、S3 prune ~350–359 行）。
 
-### 当前证据
+### 复现
 
-- `apps/worker/migrations/0006_restore_staging.sql:2` 至 `8` 只有标识和 payload。
-- `apps/worker/src/index.ts:3412` 的 cleanup 只能由当前请求执行。
-- 仓库中不存在按创建时间清理 `restore_staging` 的 cron 或恢复逻辑。
+fake provider 配置两个不同 key 删除失败 → 立即备份 → 响应只能识别一个失败 key。Worker 侧再准备 >1000 对象验证后续页未处理。
 
-### 确定性复现
+### 修复方案
 
-1. 在 staging 写完、cutover 前暂停大型恢复。
-2. 强制终止 Worker。
-3. 重启并查询 `SELECT COUNT(*) FROM restore_staging`。
-4. 残留行不会随 scheduled handler 或后续请求消失。
+- 统一返回 `retention_failures: [{key, code, message}]` + `attempted/pruned/failed` 计数（可截断详情条数，但保留总数与稳定 key，完整详情写日志）。
+- Worker `s3ListObjects` 实现 ListObjectsV2 continuation 分页，并把默认 `max-keys` 改为合理值。
+- FastAPI 收集错误列表而非覆盖。
 
-### 修复方向
+### 验收
 
-- 增加 `status`、`created_at`、`updated_at`、`expires_at` 和 lease owner。
-- 为 `expires_at` 建索引。
-- scheduled handler 清理过期且无有效 lease 的 staging。
-- retry 和 cleanup 必须幂等，不能删除仍活跃的 restore。
-
-### 验收方法与通过标准
-
-- 增加强制终止测试。
-- 过期 staging 必须在规定 TTL 内清除。
-- 活跃 lease 不得被误删；同一用户随后能够重新恢复。
-
-## MH-BACKUP-001：retention 多项失败信息不完整
-
-- 优先级：P1
-- 分类：核心 / 备份保留
-- 状态：Open
-
-### 问题与影响
-
-多个对象删除失败时，调用方只能看到其中一项，无法识别全部残留对象。Worker 的 S3 listing 还只读取单页，超过 1000 个对象时 retention 不完整。
-
-### 当前证据
-
-- Worker 在 `apps/worker/src/index.ts:1276` 收集错误，但 `1289` 只返回第一条详情。
-- FastAPI 在 `server/app/domain/remote_backup.py:350` 至 `356` 每次覆盖 `retention_error`，最终只保留最后一条。
-- Worker 在 `apps/worker/src/index.ts:1262` 只读取一页 ListObjectsV2。
-- 当前 Worker/Python provider 测试都只注入一个 S3 delete failure。
-
-### 确定性复现
-
-1. fake S3 中放入至少 4 个超出 retention 的对象。
-2. 将两个不同 key 配置为删除失败。
-3. 执行立即备份。
-4. 返回结果只包含一个失败详情。
-5. 再准备超过 1000 个对象，确认后续页对象未被处理。
-
-### 修复方向
-
-- 返回结构化 `retention_failures: [{key, code, message}]`。
-- 同时返回 `attempted`、`pruned`、`failed` 和 `failure_count`。
-- 可以限制响应中的详情数量，但必须保留总数和稳定 key，并将完整详情写入日志。
-- Worker 实现 ListObjectsV2 continuation 分页。
-
-### 验收方法与通过标准
-
-- Worker 和 FastAPI 都用两个以上失败 key 回归。
-- 响应可识别每个失败 key，计数严格一致。
-- 超过 1000 个对象的分页 retention 测试通过。
+- 两端各用 ≥2 个失败 key 回归，响应可识别每个失败 key，计数一致。
+- Worker >1000 对象分页 retention 测试通过。
 
 ## MH-BACKUP-002：retention 部分失败在刷新后和 UI 中不可见
 
-- 优先级：P1
-- 分类：核心 / 备份状态
-- 状态：Open
-
-### 问题与影响
-
-POST 响应可能带 `retention_ok:false`，但 GET 配置不返回已保存错误，UI 也固定显示成功。管理员无法判断上传成功但 retention 失败的状态。
+- 优先级：P1 ｜ 分类：核心 / 备份状态 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。后端**已把** `last_retention_error` 持久化进 config（这是改进），但 GET 不返回、UI 不消费，用户仍然完全看不到。
 
 ### 当前证据
 
-- Worker S3/WebDAV GET 在 `apps/worker/src/index.ts:4052` 至 `4073`、`5463` 至 `5472` 忽略 `last_retention_error`。
-- FastAPI S3/WebDAV GET 在 `server/app/domain/remote_backup.py:17` 至 `29`、`180` 至 `196` 忽略该字段。
-- UI（现为 `apps/web/src/components/SettingsModal.tsx` 的 WebDAV/S3 区块）不读取 POST retention 结果，固定显示完成。
+- Worker 持久化：`runS3Backup` 在 `index.ts:1058–1061`、`runWebdavBackup` 在 1121–1124 行写入/清除 `cfg.last_retention_error`。
+- Worker GET 不返回：`/backup/s3` GET 响应 3118–3130 行、`/backup/webdav` GET 响应 3460–3469 行，均无 `last_retention_error` 字段。
+- FastAPI GET 不返回：`get_webdav_config`（`remote_backup.py:17–29`）、`get_s3_config`（~180–196 行）同样缺失（FastAPI 侧同样有持久化，见 ~163 行）。
+- UI 完全不感知：`apps/web/src` 全目录 grep 无任何 `retention` 字样；`SettingsModal.tsx` 不读取 POST 返回的 `retention_ok`。
 
-### 确定性复现
+### 复现
 
-1. fake provider 注入 retention delete failure。
-2. 从管理页点击 Run now。
-3. API 返回 `retention_ok:false`，页面仍显示成功。
-4. 刷新页面，GET 配置仍无错误状态。
+fake provider 注入 retention delete 失败 → 设置页 Run now → API 返回 `retention_ok:false` 但页面显示成功；刷新后 GET 配置也无错误状态。
 
-### 修复方向
+### 修复方案
 
-- GET 配置返回 `last_retention_error`、失败时间、失败数和最后成功 retention 时间。
-- UI 根据 `retention_ok` 显示持久 warning，而不是成功提示。
-- 明确区分“上传成功”和“retention 完整成功”。
-- 只有一次完整成功的 retention 才清除旧错误。
+- GET 配置返回 `last_retention_error`（及失败时间/计数、最后成功时间）——后端已存，只差透出，改动很小。
+- UI 根据 POST 的 `retention_ok` 与 GET 的持久化字段显示 warning，区分"上传成功"与"retention 完整成功"；仅完整成功清除旧错误（后端清除逻辑已存在）。
+- 与 MH-BACKUP-001 的结构化返回、MH-UI-001 的表单补齐同批实施。
 
-### 验收方法与通过标准
+### 验收
 
-- Worker、FastAPI、S3、WebDAV 均覆盖 partial failure。
-- 错误在当前操作和刷新后都可见。
-- 下一次完整成功后 warning 才消失。
+- Worker、FastAPI × S3、WebDAV 四条路径覆盖 partial failure；错误在当次操作与刷新后都可见；下次完整成功后 warning 消失。
 
 ## MH-BACKUP-003：scheduled S3 路径缺少真实回归
 
-- 优先级：P1
-- 分类：核心 / 备份调度测试
-- 状态：Open
-
-### 问题与影响
-
-生产代码有 scheduled S3 分支，但现有测试只真正触发 WebDAV。S3 scheduler 可以失效而测试继续通过。
+- 优先级：P1 ｜ 分类：核心 / 备份调度测试 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。两个 runtime 的测试都只在 WebDAV 阶段触发调度；S3 阶段全部是 run-now。
 
 ### 当前证据
 
-- Worker S3 scheduled 分支位于 `apps/worker/src/index.ts:5966` 至 `5982`。
-- `apps/worker/scripts/test-remote-backups-r3.mjs:211` 触发 schedule 时只配置 WebDAV；S3 到 `245` 才配置，之后未再次触发 schedule。
-- `server/tests/test_remote_backup_fake_provider_r3.py:198` 至 `208` 触发 schedule，S3 配置从 `218` 才开始。
+- Worker scheduled S3 分支：`index.ts:3756–3772`（WebDAV 分支 3737–3754）。
+- `apps/worker/scripts/test-remote-backups-r3.mjs`：`__scheduled` 触发在 211–216 行（此时只配置了 WebDAV）；S3 从 237 行 `testS3` 才配置，之后再未触发 `__scheduled`。
+- `server/tests/test_remote_backup_fake_provider_r3.py`：`_run_scheduled_backups` 仅在 WebDAV 用例（130 行起，调度在 ~198–202 行）中调用；S3 用例（~210 行起）只测 run-now。
 
-### 确定性复现
+### 复现
 
-将 Worker 或 FastAPI 的 scheduled S3 调用临时改为 no-op，再运行当前远程备份套件；套件仍可通过。
+把任一 runtime 的 scheduled S3 调用改成 no-op，现有远程备份套件仍全绿。
 
-### 修复方向
+### 修复方案
 
-- 两个 runtime 都先配置 enabled S3 和匹配当前时间的 `backup_time`，再调用真实 scheduler。
-- fake provider 断言 PUT、listing、retention 和持久化状态。
-- 加入 scheduled partial failure 和时间不匹配时不执行的用例。
+- 两个 runtime：先配置 enabled S3 + 匹配当前时间的 `backup_time`，再触发真实 scheduler；fake provider 断言 PUT、listing、retention 与持久化状态。
+- 补 scheduled partial failure、时间不匹配不执行两个用例。
 
-### 验收方法与通过标准
+### 验收
 
-- 对 scheduled S3 分支做 mutation test；删除或 no-op 该调用必须导致测试失败。
-- Worker 和 FastAPI 都必须证明 scheduled PUT 和 retention 实际发生。
+- mutation test：no-op 掉 scheduled S3 调用必须使测试失败；两端都证明 scheduled PUT 与 retention 实际发生。
 
 ## MH-CF-001：assets 配置缺少 `run_worker_first`
 
-- 优先级：P1
-- 分类：核心 / Cloudflare 部署
-- 状态：Open
+- 优先级：P1 ｜ 分类：核心 / Cloudflare 部署 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。
 
 ### 问题与影响
 
-升级 compatibility date 后，SPA fallback 可能先于 Worker 处理浏览器 navigation 形式的 `/api/*` 请求，导致 API 返回 HTML。
+升级 compatibility date 后，SPA fallback 可能先于 Worker 处理浏览器 navigation 形式的 `/api/*` 请求，API 返回 HTML。当前 `2024-12-01` 的旧日期掩盖了该行为变化。
 
 ### 当前证据
 
-- `apps/worker/wrangler.toml:12` 至 `15` 配置 assets 和 SPA fallback，但没有 `run_worker_first = true`。
-- `apps/worker/node_modules/wrangler/config-schema.json:39` 说明该字段控制所有请求是否先进入 Worker。
-- `apps/worker/scripts/cf-assets-test.mjs:238` 之后只测普通 API GET，没有模拟 `Sec-Fetch-Mode: navigate`。
-- 当前 compatibility date 为 `2024-12-01`，会掩盖升级后的行为变化。
+- `apps/worker/wrangler.toml:12–15` `[assets]` 配置 SPA fallback，无 `run_worker_first = true`；compatibility date 在第 3 行。根目录 `wrangler.toml:4` 同样 `2024-12-01`。
+- `apps/worker/scripts/cf-assets-test.mjs` 无任何 `Sec-Fetch-Mode: navigate` 用例（grep 为空）。
 
-### 确定性复现
-
-1. 使用临时 config 把 compatibility date 更新到当前日期。
-2. 保留现有 SPA assets 配置。
-3. 请求：
+### 复现
 
 ```bash
+# 临时 config 把 compatibility_date 改到当前日期后：
 curl -i -H 'Sec-Fetch-Mode: navigate' http://127.0.0.1:PORT/api/v1/health
 ```
 
-4. 检查响应是否为 SPA HTML 而不是 API JSON。
+观察是否返回 SPA HTML 而非 JSON。
 
-### 修复方向
+### 修复方案
 
-- 在生产 `[assets]` 中显式设置 `run_worker_first = true`。
-- assets harness 继承并断言该配置。
-- 同时测试普通 fetch 和 browser navigation header。
+- `[assets]` 显式加 `run_worker_first = true`（两个 wrangler.toml）；assets harness 断言该配置，并同时测普通 fetch 与 navigate header。
+- 本条是 MH-MAINT-002（Wrangler 4 升级）的**前置**。
 
-### 验收方法与通过标准
+### 验收
 
-- `/api/v1/*` 在普通请求和 navigate 请求中始终由 Worker 返回正确 JSON/status。
-- `/admin/login` 等前端路由仍返回 SPA。
-- 当前 compatibility date 下 dry-run 和真实本地 assets harness 通过。
+- `/api/v1/*` 在普通与 navigate 请求下均由 Worker 返回 JSON；前端路由仍返回 SPA；当前 compatibility date 下 assets harness 通过。
 
-## MH-UI-001：远程备份页面缺少 retention 与完整调度配置
+## MH-UI-001：设置弹窗缺少 retention 与完整调度配置
 
-- 优先级：P2
-- 分类：非核心 / 管理端配置完整性
-- 状态：Open
-
-### 问题与影响
-
-后端的 S3 和 WebDAV 配置都支持 `keep_backups` 与 `backup_time`，但管理页没有任何 `keep_backups` 控件，WebDAV 也没有 `backup_time` 控件。管理员只能依赖默认值或直接调用 API，无法从产品界面完整配置已实现的能力。
+- 优先级：P2 ｜ 分类：非核心 / 配置完整性 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。原文档所述"管理页"已在重构中移除，备份配置现全部位于 `SettingsModal`。
 
 ### 当前证据
 
-- `apps/web/src/components/SettingsModal.tsx` 只为 S3 渲染 `backup_time`。
-- `apps/web/src/components/SettingsModal.tsx` 的 WebDAV 表单没有 `backup_time` 或 `keep_backups`。
-- 整个 `apps/web/src/components/SettingsModal.tsx` 没有 `keep_backups` 字段。
-- Worker 在 `apps/worker/src/index.ts:4069`、`4070`、`5469`、`5470` 返回这两个配置。
-- FastAPI 在 `server/app/domain/remote_backup.py:26`、`27`、`191`、`192` 返回这两个配置。
+- `apps/web/src/components/SettingsModal.tsx`：仅 S3 有 `backup_time` 输入（526–527 行）；整个文件无 `keep_backups`；WebDAV 表单无 `backup_time`。
+- 后端两个 runtime 的 GET/PUT 均支持这两个字段（Worker `index.ts:3125–3126`、3466–3467 行；FastAPI `get_webdav_config`/`get_s3_config`）。
 
-### 确定性复现
+### 复现
 
-1. 以管理员身份打开 Backup 页面。
-2. 查看 S3 表单，只能配置执行时间，不能配置保留份数。
-3. 查看 WebDAV 表单，执行时间和保留份数都不可配置。
-4. 通过 API 写入非默认值后刷新页面；数据虽在 state 中返回，但没有可见、可编辑的对应控件。
+打开设置 → 备份区块：S3 只能配时间不能配保留份数；WebDAV 两者都不能配。API 写入非默认值后刷新，无可见控件承载。
 
-### 修复方向
+### 修复方案
 
-- 为 S3 和 WebDAV 增加数值输入或 stepper，编辑 `keep_backups`，最小值为 1。
-- 为 WebDAV 增加与 S3 一致的 `backup_time` 时间输入。
-- 使用明确的 typed form model 替代 `any`，并在提交前展示与后端一致的字段级校验错误。
-- 对 API 返回的非默认值进行受控表单回填，避免保存其他字段时意外覆盖隐藏配置。
+- S3、WebDAV 各加 `keep_backups` 数值输入（min 1）；WebDAV 补 `backup_time`。
+- 受控表单回填 API 返回值，避免保存其他字段时覆盖隐藏配置。与 MH-BACKUP-002 的 warning UI 同批做。
 
-### 验收方法与通过标准
+### 验收
 
-- 浏览器 E2E 分别为 S3 和 WebDAV 设置非默认 `keep_backups`、`backup_time`，保存并刷新后值保持一致。
-- 非法时间和小于 1 的保留份数在 UI 中得到明确错误，且不会发出无效保存或覆盖已有配置。
-- 只修改凭据、endpoint 或 path 时，现有 retention/schedule 值保持不变。
+- E2E：为两种 provider 设置非默认 `keep_backups`/`backup_time`，保存刷新后一致；非法值有明确错误；只改凭据时 retention/schedule 不变。
 
 ## MH-TEST-001：`pnpm test` 不是完整 release gate
 
-- 优先级：P1
-- 分类：非核心 / 测试基础设施
-- 状态：Open
-
-### 问题与影响
-
-根测试只递归执行 workspace package tests，不运行 FastAPI、Docker 和浏览器 E2E。reviewer 只看 `pnpm test` 绿灯会得到错误的完整验收结论。
+- 优先级：P1 ｜ 分类：非核心 / 测试基础设施 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。
 
 ### 当前证据
 
-- `package.json:8` 的 `test` 只有 `pnpm -r run test`。
-- `pnpm-workspace.yaml:1` 至 `3` 只包含 `packages/*`、`apps/*`。
-- `test:server`、`test:docker`、`test:e2e` 是独立脚本，没有被根 `test` 调用。
+- 根 `package.json`：`"test": "pnpm -r run test"`；`test:server`（pytest）、`test:docker`、`test:e2e`、`test:parity` 均为独立脚本，无统一 `test:release` 入口。
+- `pnpm-workspace.yaml` 只含 `packages/*`、`apps/*`。
 
-### 确定性复现
+### 修复方案
 
-运行 `pnpm test` 并查看命令输出，不会出现 pytest、Docker integration 或根浏览器 E2E。
+- 增加 `test:release` 串联 lint、core、worker、server、E2E、Docker、CF assets/dry-run；CI 与最终验收只调这一个入口。
+- 前置：MH-TEST-003（否则干净环境跑不了）。
 
-### 修复方向
+### 验收
 
-- 增加单一 `test:release`，串联 lint、core、server、worker、E2E、Docker、Cloudflare dry-run/assets。
-- CI 和 workflow 最终验收调用该统一入口。
-
-### 验收方法与通过标准
-
-- 对每个子套件分别注入失败，`test:release` 都必须非零退出。
-- 成功日志列出全部必需 gate，不能依赖 reviewer 临时拼装命令。
+- 对每个子套件分别注入失败，`test:release` 均非零退出；成功日志列出全部 gate。
 
 ## MH-TEST-002：Docker cleanup 失败可能仍退出 0
 
-- 优先级：P2
-- 分类：非核心 / 测试基础设施
-- 状态：Open
-
-### 问题与影响
-
-EXIT trap 只返回 cleanup 状态时，Bash 可能保留主流程的原始成功码，使资源清理失败被误报为测试通过。
+- 优先级：P2 ｜ 分类：非核心 / 测试基础设施 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。
 
 ### 当前证据
 
-- `scripts/test-docker-deploy.sh:65` 至 `91` 返回 cleanup 状态。
-- `scripts/test-docker-deploy.sh:93` 使用 `trap cleanup EXIT`，没有合并原始 status 并显式退出。
-- `bash -c 'trap "false" EXIT; true'; echo $?` 可观察退出码仍为 0。
+- `scripts/test-docker-deploy.sh:66–91`：`cleanup()` 以 `return "$cleanup_status"` 结束；93 行 `trap cleanup EXIT`。EXIT trap 中的 return 值不改变脚本退出码，主流程成功 + cleanup 失败 → 仍退出 0。
+- 佐证：`bash -c 'trap "false" EXIT; true'; echo $?` 输出 0。
 
-### 确定性复现
+### 修复方案
 
-1. 将 cleanup 中一个受控清理步骤替换为稳定失败 stub。
-2. 让主测试流程成功。
-3. 观察脚本仍可能退出 0。
+cleanup 内捕获 `$?`，合并主流程与 cleanup 状态后 `trap - EXIT; exit "$status"`。
 
-### 修复方向
+### 验收
 
-- cleanup 捕获 `$?`，执行清理后合并主流程和 cleanup 状态。
-- 显式 `exit "$status"` 前移除 EXIT trap，避免递归。
-
-### 验收方法与通过标准
-
-- 主流程成功、cleanup stub 失败时脚本必须非零退出。
-- 主流程失败时保留原始失败。
-- 成功退出后没有容器、volume、镜像或监听端口残留。
+- 主流程成功 + cleanup stub 失败 → 非零退出；主流程失败保留原始码；成功退出后无容器/volume/端口残留。
 
 ## MH-TEST-003：测试依赖仓库外的 `bounded-run.mjs`
 
-- 优先级：P2
-- 分类：非核心 / 测试可移植性
-- 状态：Open
-
-### 问题与影响
-
-干净 CI 或没有安装 pi-trio-workflow 的开发机无法运行 release tests，测试在业务逻辑执行前即失败。
+- 优先级：P2 ｜ 分类：非核心 / 测试可移植性 ｜ 状态：Open
+- 2026-07-18 复核：仍有效；引用位置有变化（原列表中 `server/tests/test_remote_backup_fake_provider_r3.py` 已不再引用，新增 `test_round8_docker_deploy.py`）。
 
 ### 当前证据
 
-以下路径均引用 `~/.pi/agent/extensions/trio-workflow/bounded-run.mjs`：
+引用 `~/.pi/agent/extensions/trio-workflow/bounded-run.mjs` 的位置：
 
 - `scripts/e2e-smoke.sh:6`
 - `scripts/test-docker-deploy.sh:6`
 - `apps/worker/scripts/run-test.sh:5`
 - `apps/worker/scripts/worker-d1-runtime-test.mjs:17`
 - `apps/worker/scripts/cf-assets-test.mjs:20`
-- `server/tests/test_remote_backup_fake_provider_r3.py:24`
+- `apps/worker/scripts/test-remote-backups-r3.mjs:19–20`
+- `server/tests/test_round8_docker_deploy.py:295`
 
-### 确定性复现
+### 修复方案
 
-在空 `HOME` 的容器或干净账号中运行 `pnpm test:worker`、`pnpm test:e2e` 或 `pnpm test:docker`，测试会因缺少 helper 失败。
+把 deadline/process-group helper 收进仓库（或锁定版本的依赖），所有 harness 引用同一 repo-local 入口。
 
-### 修复方向
+### 验收
 
-- 将 deadline/process-group helper 放进仓库，或声明为锁定版本的项目依赖。
-- 所有 harness 只引用同一个 repo-local 入口。
-
-### 验收方法与通过标准
-
-- 在空 HOME、只 checkout 仓库并安装项目依赖的容器中可运行全部 release gate。
-- 测试不得读取 `~/.pi` 或其他 workflow 私有路径。
+- 空 HOME、仅 checkout + 安装依赖的容器可运行全部 gate；不读取 `~/.pi`。
 
 ## MH-TEST-004：所谓大型恢复测试只有约 460 条
 
-- 优先级：P1
-- 分类：非核心 / 规模测试缺口
-- 状态：Open
-
-### 问题与影响
-
-测试名称声称覆盖 size-independent restore，但没有覆盖计划要求的 50,000 条规模，无法发现查询预算、参数上限和内存阈值问题。
+- 优先级：P1 ｜ 分类：非核心 / 规模测试缺口 ｜ 状态：Open
+- 2026-07-18 复核：仍有效，仅行号变化。
 
 ### 当前证据
 
-- `apps/worker/scripts/worker-d1-runtime-test.mjs:971` 默认 `count = 460`。
-- `apps/worker/scripts/worker-d1-runtime-test.mjs:1401` 将其描述为大型恢复。
+- `apps/worker/scripts/worker-d1-runtime-test.mjs:811`：`largeRestoreContents(count = 460)`。
+- 在 1,000+ 规模注入阈值故障，当前测试仍通过——输入从未超过 460。
 
-### 确定性复现
+### 修复方案
 
-在 1,000 或更高规模引入阈值故障，当前测试仍通过，因为输入从未超过约 460 条。
+- 增加 5 万条真实 Worker integration 用例（可挂 nightly/release gate）；另加快速 query-budget、metadata-size 单测让常规 CI 捕获规模退化。与导出规模组（MH-EXPORT-001/002）共用数据集与验收。
 
-### 修复方向
+### 验收
 
-- 增加 50,000 条真实 Worker integration 用例；耗时过长时可放入 nightly/release gate。
-- 增加快速 query-budget 和 metadata-size 单测，让常规 CI 稳定捕获规模退化。
-
-### 验收方法与通过标准
-
-- JSON、CSV、HTML 至少各完成一次 50,000 条恢复与导出。
-- 校验 count、首尾记录、checksum、层级、顺序、visibility、标签和 staging 清理。
-- 不能只证明 HTTP 200。
+- JSON、CSV、HTML 各至少一次 5 万条恢复与导出；校验 count、首尾、checksum、层级、顺序、visibility、标签、staging 清理，不能只看 HTTP 200。
 
 ## MH-MAINT-001：Worker Env 仍为手写类型
 
-- 优先级：P3
-- 分类：非核心 / 维护性
-- 状态：Open
-
-### 问题与影响
-
-绑定类型可能与生产 Wrangler 配置漂移，TypeScript 无法保证代码声明与实际部署 binding 一致。
+- 优先级：P3 ｜ 分类：非核心 / 维护性 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。
 
 ### 当前证据
 
-- `apps/worker/src/index.ts:34` 至 `43` 手写 `Env`。
-- `apps/worker/wrangler.toml` 是真实 binding 来源。
+- `apps/worker/src/index.ts:33–42` 手写 `interface Env`（含测试专用 `RESTORE_TEST_FAIL_PHASE`）；`apps/worker/wrangler.toml` 是真实 binding 来源。
 
-### 确定性复现
+### 修复方案
 
-在 Wrangler 配置中添加或重命名 binding，但不更新手写 interface；常规配置校验不会保证两者同步。
+- `wrangler types` 生成 Env 并纳入 CI drift check；测试专用 binding 用独立 augmentation。随 MH-MAINT-002 升级时一并做。
 
-### 修复方向
+### 验收
 
-- 使用 `wrangler types` 从生产配置生成 Env 类型。
-- 将生成结果 drift check 纳入 CI；测试专用 binding 用独立 augmentation 表达。
-
-### 验收方法与通过标准
-
-- `wrangler types --check` 或等价 drift check 通过。
-- 修改 binding 后未重新生成类型必须使 CI 失败。
+- 修改 binding 未重新生成类型必须使 CI 失败。
 
 ## MH-MAINT-002：Wrangler 3 和旧 compatibility date 待升级
 
-- 优先级：P2
-- 分类：非核心 / 平台维护
-- 状态：Open
-
-### 问题与影响
-
-项目仍使用 Wrangler 3 和较旧 compatibility date，升级时可能集中暴露 assets routing、类型和运行时兼容问题。
+- 优先级：P2 ｜ 分类：非核心 / 平台维护 ｜ 状态：Open
+- 2026-07-18 复核：仍有效。
 
 ### 当前证据
 
-- `apps/worker/package.json:23` 至 `25` 锁在 Wrangler 3 范围。
-- `apps/worker/wrangler.toml:3` 使用 `2024-12-01`。
-- `pnpm --dir apps/worker exec wrangler --version` 当前输出 `3.114.17`。
+- `apps/worker/package.json:25`：`"wrangler": "^3.99.0"`。
+- `apps/worker/wrangler.toml:3` 与根 `wrangler.toml:4`：`compatibility_date = "2024-12-01"`。
 
-### 确定性复现
+### 修复方案
 
-```bash
-pnpm --dir apps/worker exec wrangler --version
-```
+- **先完成 MH-CF-001**，再升 Wrangler 4、更新 compatibility date、生成 binding 类型（MH-MAINT-001）；按变更逐项跑 D1、remote backup、assets、dry-run 回归。
 
-### 修复方向
+### 验收
 
-- 先完成 `MH-CF-001`，再升级 Wrangler 4、生成 binding 类型并更新 compatibility date。
-- 按变更逐项运行 D1、remote backup、assets 和 dry-run 回归。
+- 受支持的 Wrangler 4 无过期警告；新 compatibility date 下 Worker runtime、remote backup、assets navigation、D1 migrations、deploy dry-run 全部通过。
 
-### 验收方法与通过标准
-
-- 使用受支持的 Wrangler 4，无过期警告。
-- 当前 compatibility date 下 Worker runtime、remote backup、assets navigation、D1 migrations 和 deploy dry-run 全部通过。
+---
 
 ## 关闭规则
 
-任何条目只有在以下条件全部满足后才能改为 Closed：
+任何条目改为 Closed 须全部满足：
 
-1. 根因修复已落在共享边界，而不是只屏蔽一个测试症状。
-2. 本条“确定性复现”在修复前稳定失败、修复后稳定通过。
-3. 本条列出的所有验收标准均有 checked-in 自动化证据，或有明确、可重复的部署配置检查。
-4. 相关 broad/release suite 仍通过，且没有破坏原有数据和兼容路径。
-5. 文档记录实际修复 commit、验证命令和结果。
+1. 根因修复落在共享边界，而不是只屏蔽一个测试症状。
+2. 本条"确定性复现"在修复前稳定失败、修复后稳定通过。
+3. 所有验收标准有 checked-in 自动化证据，或明确可重复的部署配置检查。
+4. 相关 release suite 仍通过，无数据/兼容性破坏。
+5. 记录实际修复 commit、验证命令和结果。

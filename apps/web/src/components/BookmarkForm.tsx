@@ -22,7 +22,7 @@ export type FolderLike = {
 export type TagLike = { id?: string; name: string };
 
 export type BookmarkDraft = {
-  folder_id: string; // "" = default (Inbox); "__new__:<name>" = create on save
+  folder_id: string; // "" = no category (shown under "All"); "__new__:<name>" = create on save
   url: string;
   title: string;
   description: string;
@@ -103,13 +103,18 @@ export function BookmarkForm({
   showArchived?: boolean;
 }) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState<BookmarkDraft>(initial);
+  // The system folder is not a real category in the UI — normalize it to "".
+  const [draft, setDraft] = useState<BookmarkDraft>(() =>
+    folders.some((f) => f.is_system && f.id === initial.folder_id)
+      ? { ...initial, folder_id: "" }
+      : initial,
+  );
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingTags, setPendingTags] = useState<string[]>([]);
 
   const folderOptions = useMemo<ComboOption[]>(() => {
-    const out: ComboOption[] = [{ value: "", label: t("inboxDefault") }];
+    const out: ComboOption[] = [{ value: "", label: t("allFolders") }];
     const byParent = new Map<string | null, FolderLike[]>();
     for (const f of folders) {
       const k = f.parent_id ?? null;
@@ -117,6 +122,11 @@ export function BookmarkForm({
     }
     const walk = (parent: string | null, pad: number) => {
       for (const f of byParent.get(parent) || []) {
+        if (f.is_system) {
+          // Skip the system folder itself but keep folders nested under it
+          walk(f.id, pad);
+          continue;
+        }
         out.push({ value: f.id, label: f.name, pad });
         walk(f.id, pad + 14);
       }

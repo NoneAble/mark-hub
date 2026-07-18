@@ -9,7 +9,6 @@ export type BmLike = {
   description?: string | null;
   icon?: string | null;
   visibility?: string;
-  is_favorite?: boolean;
   is_archived?: boolean;
   tags?: Array<string | { name: string }> | null;
 };
@@ -38,8 +37,6 @@ type Props = {
   editMode?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
-  onFav?: () => void;
-  onQr?: () => void;
   onArchive?: () => void;
   /** Batch selection (edit mode): render a checkbox overlay. */
   selected?: boolean;
@@ -53,8 +50,6 @@ export function BookmarkCard({
   editMode,
   onEdit,
   onDelete,
-  onFav,
-  onQr,
   onArchive,
   selected,
   onSelectToggle,
@@ -119,23 +114,8 @@ export function BookmarkCard({
       {bm.description ? <div className="bm-desc">{bm.description}</div> : <div className="bm-desc" />}
       <div className="bm-meta">
         <TagList tags={bm.tags} />
-        {editMode || onFav || onEdit || onQr || onArchive || onDelete ? (
+        {editMode || onEdit || onArchive || onDelete ? (
           <div className={`bm-actions${editMode ? " always" : ""}`}>
-            {onFav ? (
-              <button
-                type="button"
-                className="btn-icon"
-                title="Favorite"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onFav();
-                }}
-                style={{ color: bm.is_favorite ? "var(--warn)" : undefined }}
-              >
-                {bm.is_favorite ? "★" : "☆"}
-              </button>
-            ) : null}
             {onEdit ? (
               <button
                 type="button"
@@ -148,22 +128,6 @@ export function BookmarkCard({
                 }}
               >
                 ✎
-              </button>
-            ) : null}
-            {onQr ? (
-              <button
-                type="button"
-                className="btn-icon"
-                title="QR"
-                data-testid={`qr-${bm.id}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onQr();
-                }}
-                style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3 }}
-              >
-                QR
               </button>
             ) : null}
             {onArchive ? (

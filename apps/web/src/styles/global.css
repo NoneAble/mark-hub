@@ -1202,8 +1202,16 @@ div.field {
   transition: opacity var(--ease);
 }
 .folder-row:hover .folder-row-actions,
-.folder-row:focus-within .folder-row-actions {
+.folder-row:focus-within .folder-row-actions,
+.folder-row-actions:has(.menu) {
   opacity: 1;
+}
+/* per-category dropdown (edit mode) anchors to the row's trailing button */
+.folder-menu {
+  position: relative;
+}
+.folder-menu .menu {
+  min-width: 150px;
 }
 
 /* sidebar tag edit affordance */

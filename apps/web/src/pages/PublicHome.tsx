@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { QrCodeModal } from "@markhub/ui";
 import { useAuth } from "../lib/auth";
 import { useI18n } from "../i18n";
 import { BookmarkCard } from "../components/BookmarkCard";
@@ -13,7 +12,7 @@ import {
   useSearchHotkey,
   useToast,
 } from "../components/ui";
-import { Combobox, useConfirm, type ComboOption } from "../components/form";
+import { Combobox, useClickOutside, useConfirm, type ComboOption } from "../components/form";
 import {
   BookmarkForm,
   draftFromBookmark,
@@ -38,7 +37,6 @@ type NavNode = {
   visibility?: string;
   folder_id?: string;
   sort_order?: number;
-  is_favorite?: boolean;
   is_archived?: boolean;
   is_system?: boolean;
   tags?: Array<string | { name: string }>;
@@ -113,7 +111,6 @@ type HomeBookmark = {
   description?: string | null;
   icon?: string | null;
   visibility?: string;
-  is_favorite?: boolean;
   is_archived?: boolean;
   sort_order?: number;
   tags?: Array<string | { name: string }>;
@@ -153,7 +150,6 @@ function buildTreeFromHome(folders: ManagedFolder[], bookmarks: HomeBookmark[]):
       visibility: b.visibility,
       folder_id: b.folder_id,
       sort_order: b.sort_order ?? 0,
-      is_favorite: b.is_favorite,
       tags: b.tags,
     };
     if (parent) parent.children!.push(node);
@@ -170,7 +166,79 @@ function buildTreeFromHome(folders: ManagedFolder[], bookmarks: HomeBookmark[]):
   return roots;
 }
 
-type Selected = string | "all" | "fav" | "archived";
+type Selected = string | "all" | "archived";
+
+/** Per-category "more" dropdown (edit mode): mail-style folder menu. */
+function FolderRowMenu({
+  name,
+  id,
+  onEdit,
+  onDelete,
+}: {
+  name: string;
+  id: string;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const rootRef = useClickOutside(useCallback(() => setOpen(false), []));
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <div className="folder-row-actions folder-menu" ref={rootRef}>
+      <button
+        className="btn-icon"
+        type="button"
+        title={t("more")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid={`folder-menu-${id}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⋯
+      </button>
+      {open ? (
+        <div className="menu" role="menu">
+          <div className="menu-label">{name}</div>
+          <button
+            type="button"
+            className="menu-item"
+            role="menuitem"
+            data-testid="folder-menu-edit"
+            onClick={() => {
+              setOpen(false);
+              onEdit();
+            }}
+          >
+            {t("edit")}
+          </button>
+          <div className="menu-sep" role="separator" />
+          <button
+            type="button"
+            className="menu-item danger"
+            role="menuitem"
+            data-testid="folder-menu-delete"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            {t("delete")}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function PublicHome() {
   const { api, token, user, logout } = useAuth();
@@ -191,7 +259,6 @@ export function PublicHome() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [editing, setEditing] = useState<NavNode | null>(null);
   const [adding, setAdding] = useState(false);
-  const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [settings, setSettings] = useState<{ open: boolean; tab: SettingsTab }>({
     open: false,
@@ -278,7 +345,6 @@ export function PublicHome() {
     if (
       typeof selected === "string" &&
       selected !== "all" &&
-      selected !== "fav" &&
       selected !== "archived" &&
       token &&
       folders.length &&
@@ -318,7 +384,6 @@ export function PublicHome() {
     pad: number;
     count: number;
     visibility?: string;
-    isSystem?: boolean;
   };
 
   const folderRows = useMemo<FolderRow[]>(() => {
@@ -326,13 +391,17 @@ export function PublicHome() {
     const walk = (nodes: NavNode[], pad: number) => {
       for (const n of nodes) {
         if (n.type !== "folder") continue;
+        if (n.is_system) {
+          // The system folder is just "All" — hide the row, lift nested folders
+          if (n.children) walk(n.children, pad);
+          continue;
+        }
         out.push({
           id: n.id,
           name: n.name || "",
           pad,
           count: treeCounts.get(n.id) || 0,
           visibility: n.visibility,
-          isSystem: n.is_system,
         });
         if (n.children) walk(n.children, pad + 14);
       }
@@ -344,10 +413,6 @@ export function PublicHome() {
   const totalCount = useMemo(
     () => tree.filter((n) => n.type === "folder").reduce((n, f) => n + countBookmarks(f), 0),
     [tree],
-  );
-  const favCount = useMemo(
-    () => rawBookmarks.filter((b) => b.is_favorite && !b.is_archived).length,
-    [rawBookmarks],
   );
 
   const tagUsage = useMemo(() => {
@@ -390,9 +455,7 @@ export function PublicHome() {
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     let base = tree;
-    if (selected === "fav") {
-      base = filterTreeBy(base, (n) => !!n.is_favorite);
-    } else if (selected !== "all" && selected !== "archived") {
+    if (selected !== "all" && selected !== "archived") {
       const find = (nodes: NavNode[]): NavNode | null => {
         for (const n of nodes) {
           if (n.id === selected) return n;
@@ -425,7 +488,13 @@ export function PublicHome() {
         .flatMap((n) => {
           const groupsLocal: { id: string; name: string; items: NavNode[] }[] = [];
           const direct = (n.children || []).filter((c) => c.type === "bookmark");
-          if (direct.length) groupsLocal.push({ id: n.id, name: n.name || "", items: direct });
+          if (direct.length)
+            groupsLocal.push({
+              id: n.id,
+              // System folder (uncategorized) surfaces under the unified "All" name
+              name: n.is_system ? t("allFolders") : n.name || "",
+              items: direct,
+            });
           for (const c of n.children || []) {
             if (c.type === "folder") {
               const items = flattenBookmarks(c);
@@ -467,15 +536,6 @@ export function PublicHome() {
 
   function notifyError(e: unknown) {
     showToast(e instanceof Error ? e.message : String(e));
-  }
-
-  async function toggleFav(bm: NavNode) {
-    try {
-      await api.patch(`/bookmarks/${bm.id}`, { is_favorite: !bm.is_favorite });
-    } catch (e) {
-      notifyError(e);
-    }
-    await reload();
   }
 
   async function toggleArchived(bm: NavNode) {
@@ -582,8 +642,8 @@ export function PublicHome() {
   /* ---------- render helpers ---------- */
 
   const folderOptions = useMemo<ComboOption[]>(
-    () => folders.map((f) => ({ value: f.id, label: f.name })),
-    [folders],
+    () => folders.map((f) => ({ value: f.id, label: f.is_system ? t("allFolders") : f.name })),
+    [folders, t],
   );
 
   const visibilityOptions: ComboOption[] = [
@@ -592,8 +652,7 @@ export function PublicHome() {
     { value: "private", label: `🔒 ${t("private")}` },
   ];
 
-  const defaultFolderId =
-    selected !== "all" && selected !== "fav" && selected !== "archived" ? selected : "";
+  const defaultFolderId = selected !== "all" && selected !== "archived" ? selected : "";
   // System folders (Inbox) can't be a parent category
   const defaultParentId = folderById.get(defaultFolderId)?.is_system ? "" : defaultFolderId;
 
@@ -603,14 +662,14 @@ export function PublicHome() {
     setEditing(bm);
   }
 
-  function renderFolderRow(row: { id: string; name: string; pad: number; count: number; visibility?: string; isSystem?: boolean }) {
+  function renderFolderRow(row: { id: string; name: string; pad: number; count: number; visibility?: string }) {
     const f = folderById.get(row.id);
     return (
       <div
         key={row.id}
         className={`folder-row${dragId === row.id ? " dragging" : ""}`}
-        draggable={showEdit && !!f && !f.is_system}
-        onDragStart={showEdit && f && !f.is_system ? () => setDragId(row.id) : undefined}
+        draggable={showEdit && !!f}
+        onDragStart={showEdit && f ? () => setDragId(row.id) : undefined}
         onDragEnd={() => setDragId(null)}
         onDragOver={showEdit && dragId ? (e) => e.preventDefault() : undefined}
         onDrop={showEdit && f ? () => void onDropOnFolder(f) : undefined}
@@ -621,7 +680,7 @@ export function PublicHome() {
           data-testid={`folder-node-${row.id}`}
           onClick={() => setSelected(row.id)}
         >
-          {showEdit && f && !f.is_system ? <span className="drag-handle">⠿</span> : null}
+          {showEdit && f ? <span className="drag-handle">⠿</span> : null}
           <span style={{ paddingLeft: row.pad, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {row.name}
           </span>
@@ -631,26 +690,12 @@ export function PublicHome() {
           <span className="folder-count">{row.count}</span>
         </button>
         {showEdit && f ? (
-          <span className="folder-row-actions">
-            <button
-              className="btn-icon"
-              type="button"
-              title={t("edit")}
-              onClick={() => setFolderModal({ open: true, folder: f })}
-            >
-              ✎
-            </button>
-            {!f.is_system ? (
-              <button
-                className="btn-icon"
-                type="button"
-                title={t("delete")}
-                onClick={() => void onDeleteFolder(f.id)}
-              >
-                ✕
-              </button>
-            ) : null}
-          </span>
+          <FolderRowMenu
+            name={f.name}
+            id={f.id}
+            onEdit={() => setFolderModal({ open: true, folder: f })}
+            onDelete={() => void onDeleteFolder(f.id)}
+          />
         ) : null}
       </div>
     );
@@ -740,16 +785,6 @@ export function PublicHome() {
           {t("allFolders")}
           <span className="chip-count">{totalCount}</span>
         </button>
-        {token ? (
-          <button
-            type="button"
-            className={`chip${selected === "fav" ? " active" : ""}`}
-            onClick={() => setSelected("fav")}
-          >
-            ★ {t("favorites")}
-            <span className="chip-count">{favCount}</span>
-          </button>
-        ) : null}
         {token && archivedBookmarks.length > 0 ? (
           <button
             type="button"
@@ -797,16 +832,6 @@ export function PublicHome() {
               <span>{t("allFolders")}</span>
               <span className="folder-count">{totalCount}</span>
             </button>
-            {token ? (
-              <button
-                type="button"
-                className={`folder-item${selected === "fav" ? " active" : ""}`}
-                onClick={() => setSelected("fav")}
-              >
-                <span>★ {t("favorites")}</span>
-                <span className="folder-count">{favCount}</span>
-              </button>
-            ) : null}
             {folderRows.map((row) => renderFolderRow(row))}
             {token && (archivedBookmarks.length > 0 || showEdit) ? (
               <button
@@ -894,14 +919,11 @@ export function PublicHome() {
                         description: bm.description,
                         icon: bm.icon,
                         visibility: token ? bm.visibility : undefined,
-                        is_favorite: bm.is_favorite,
                         is_archived: bm.is_archived,
                         tags: bm.tags,
                       }}
                       editMode={showEdit}
                       linkTitleOnly={false}
-                      onQr={() => setQrUrl(bm.url || "")}
-                      onFav={showEdit && !bm.is_archived ? () => void toggleFav(bm) : undefined}
                       onArchive={showEdit ? () => void toggleArchived(bm) : undefined}
                       onEdit={showEdit ? () => editFromNode(bm) : undefined}
                       onDelete={showEdit ? () => void deleteBm(bm.id) : undefined}
@@ -1081,7 +1103,6 @@ export function PublicHome() {
         }}
       />
 
-      <QrCodeModal url={qrUrl || ""} open={!!qrUrl} onClose={() => setQrUrl(null)} />
       {confirmElement}
       {deleteFolderElement}
       <Toast message={toast} />

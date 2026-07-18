@@ -115,6 +115,15 @@ test.describe("MarkHub material flows", () => {
     await ensureLoggedIn(page);
     await page.getByTestId("topbar-edit").click();
     await expect(page.getByTestId("new-folder")).toBeVisible();
+    // Category rows expose a dropdown menu with edit/delete actions
+    const folderMenu = page.locator('[data-testid^="folder-menu-"]').first();
+    if (await folderMenu.isVisible().catch(() => false)) {
+      await folderMenu.click();
+      await expect(page.getByTestId("folder-menu-edit")).toBeVisible();
+      await expect(page.getByTestId("folder-menu-delete")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("folder-menu-edit")).toBeHidden();
+    }
     // Select the first card's checkbox → batch bar appears
     const check = page.locator(".bm-check").first();
     if (await check.isVisible().catch(() => false)) {
@@ -145,19 +154,6 @@ test.describe("MarkHub material flows", () => {
     await expect(page.locator("body")).toContainText(/Imported|created|skipped/i, {
       timeout: 15_000,
     });
-  });
-
-  test("QR opens dialog when bookmarks exist", async ({ page }) => {
-    await ensureLoggedIn(page);
-    const stamp = Date.now();
-    await page.getByTestId("topbar-add").click();
-    await page.getByTestId("bm-form-url").fill(`https://qr-e2e.example/${stamp}`);
-    await page.getByTestId("bm-form-title").fill(`QR ${stamp}`);
-    await page.getByTestId("bm-form-title").press("Enter");
-    await expect(page.locator("body")).toContainText(`QR ${stamp}`, { timeout: 10_000 });
-    const qrBtn = page.locator('[data-testid^="qr-"]').first();
-    await qrBtn.click({ force: true });
-    await expect(page.locator("body")).toContainText(/QR|qr|scan|关闭|close|MarkHub/i);
   });
 
   test("login failure path shows an error and stays logged out", async ({ page }) => {

@@ -132,9 +132,8 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
     f_ai = await create_folder(db, user_id, "AI & 论文", visibility="public", sort_order=30)
     f_read = await create_folder(db, user_id, "阅读清单", visibility="unlisted", sort_order=40)
     await create_folder(db, user_id, "临时资料", visibility="private", sort_order=50)
-    f_priv = await create_folder(db, user_id, "私密", visibility="private", sort_order=60)
 
-    # (folder_id, title, url, desc, tags, visibility, favorite, link_status)
+    # (folder_id, title, url, desc, tags, visibility, link_status)
     items: list[tuple] = [
         (
             f_dev["id"],
@@ -143,7 +142,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "全球最大的代码托管与协作平台",
             ["opensource", "daily"],
             "public",
-            True,
             "ok",
         ),
         (
@@ -153,7 +151,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "Web 标准与 API 权威文档",
             ["docs"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -163,7 +160,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "程序员问答社区",
             ["qa"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -173,7 +169,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "前端部署与托管平台",
             ["deploy"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -183,7 +178,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "React 官方文档与教程",
             ["docs", "frontend"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -193,7 +187,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "下一代前端构建工具",
             ["build"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -203,7 +196,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "容器镜像仓库",
             ["container"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -213,7 +205,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "Workers / D1 / R2 控制台",
             ["deploy", "daily"],
             "public",
-            True,
             "ok",
         ),
         (
@@ -223,7 +214,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "协作界面设计工具",
             [],
             "public",
-            True,
             "ok",
         ),
         (
@@ -233,7 +223,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "设计灵感与作品集社区",
             [],
             "public",
-            False,
             "ok",
         ),
         (
@@ -243,7 +232,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "配色方案生成器",
             [],
             "public",
-            False,
             "ok",
         ),
         (
@@ -253,7 +241,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "新产品发现社区",
             [],
             "public",
-            False,
             "ok",
         ),
         (
@@ -263,7 +250,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "论文预印本平台",
             ["paper"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -273,7 +259,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "开源模型与数据集社区",
             ["ml"],
             "public",
-            True,
             "ok",
         ),
         (
@@ -283,7 +268,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "Anthropic AI 助手",
             ["ai", "daily"],
             "public",
-            True,
             "ok",
         ),
         (
@@ -293,7 +277,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "API 文档与控制台",
             ["ai"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -303,7 +286,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "技术新闻社区",
             ["daily"],
             "public",
-            False,
             "ok",
         ),
         (
@@ -313,17 +295,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "科技爱好者周刊，每周五发布",
             ["weekly"],
             "public",
-            False,
-            "ok",
-        ),
-        (
-            f_priv["id"],
-            "内部 Wiki",
-            "https://wiki.internal.example",
-            "团队内部知识库",
-            ["private"],
-            "private",
-            False,
             "ok",
         ),
         (
@@ -333,7 +304,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "已迁移的旧文档站",
             [],
             "private",
-            False,
             "dead",
         ),
         (
@@ -343,12 +313,11 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
             "重复导入的副本",
             [],
             "private",
-            False,
             "ok",
         ),
     ]
 
-    for folder_id, title, url, desc, tags, vis, fav, link_status in items:
+    for folder_id, title, url, desc, tags, vis, link_status in items:
         await create_bookmark(
             db,
             user_id,
@@ -359,7 +328,6 @@ async def seed_demo_library(db: AsyncSession, user_id: str, inbox_id: str) -> No
                 "description": desc,
                 "tags": tags,
                 "visibility": vis,
-                "is_favorite": fav,
                 "link_status": link_status,
             },
         )
