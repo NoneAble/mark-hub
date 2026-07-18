@@ -1323,8 +1323,215 @@ function clientIp(req: Request): string | null {
 
 
 
+/* ---------- page metadata + favicon fetch (parity with server /metadata) ---------- */
+
+const ICON_CONTENT_TYPES: Record<string, string> = {
+  "image/png": "png",
+  "image/x-icon": "ico",
+  "image/vnd.microsoft.icon": "ico",
+  "image/ico": "ico",
+  "image/svg+xml": "svg",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+const SAFE_ICON_NAME = /^[a-f0-9-]{36}\.(png|ico|svg|jpg|gif|webp)$/;
+const ICON_EXT_RE = /\.(png|ico|svg|jpe?g|gif|webp)(?:\?.*)?$/i;
+const MAX_ICON_BYTES = 1024 * 1024;
+
+let iconSchemaReady = false;
+/** Upgrade running D1 databases in place (fresh installs get 0007_bookmark_icon.sql). */
+async function ensureIconSchema(env: Env) {
+  if (iconSchemaReady) return;
+  try {
+    await env.DB.prepare("ALTER TABLE bookmarks ADD COLUMN icon TEXT").run();
+  } catch {
+    /* column already exists */
+  }
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS favicon_blobs (
+      name TEXT PRIMARY KEY,
+      content_type TEXT NOT NULL,
+      data BLOB NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
+  ).run();
+  iconSchemaReady = true;
+}
+
+/** Best-effort SSRF guard: Workers cannot pin DNS, so block obvious private targets. */
+function isBlockedMetaHost(hostname: string): boolean {
+  const h = (hostname || "").toLowerCase().replace(/\.$/, "");
+  if (!h) return true;
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h.endsWith(".local") || h.endsWith(".internal")) return true;
+  if (h === "metadata" || h.includes("metadata.google")) return true;
+  const bare = h.startsWith("[") && h.endsWith("]") ? h.slice(1, -1) : h;
+  // IPv6 loopback / link-local / unique-local / v4-mapped
+  if (bare.includes(":")) {
+    if (bare === "::" || bare === "::1") return true;
+    if (/^(fe8|fe9|fea|feb|fc|fd)/.test(bare)) return true;
+    const mapped = bare.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return isBlockedMetaHost(mapped[1]!);
+    return false;
+  }
+  const m = bare.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    if (a >= 224) return true;
+  }
+  return false;
+}
+
+class MetaFetchBlocked extends Error {}
+
+/** HTMLRewriter yields raw attribute/text values; decode common HTML entities. */
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+async function downloadFavicon(env: Env, iconUrl: string): Promise<string | null> {
+  try {
+    const u = new URL(iconUrl);
+    if (!/^https?:$/.test(u.protocol) || isBlockedMetaHost(u.hostname)) return null;
+    const r = await fetch(u.toString(), {
+      redirect: "follow",
+      headers: { "User-Agent": "MarkHub/0.1" },
+    });
+    if (!r.ok) return null;
+    const buf = await r.arrayBuffer();
+    if (!buf.byteLength || buf.byteLength > MAX_ICON_BYTES) return null;
+    const ctype = (r.headers.get("content-type") || "").split(";")[0]!.trim().toLowerCase();
+    let ext = ICON_CONTENT_TYPES[ctype];
+    if (!ext) {
+      const m = ICON_EXT_RE.exec(u.pathname);
+      if (!m) return null;
+      ext = m[1]!.toLowerCase().replace("jpeg", "jpg");
+    }
+    const name = `${uuid()}.${ext}`;
+    await env.DB.prepare(
+      "INSERT INTO favicon_blobs (name, content_type, data, created_at) VALUES (?, ?, ?, ?)",
+    )
+      .bind(name, ctype || `image/${ext === "jpg" ? "jpeg" : ext}`, buf, now())
+      .run();
+    return `/api/icons/favicons/${name}`;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPageMetadata(env: Env, rawUrl: string) {
+  let target = (rawUrl || "").trim();
+  if (target && !target.includes("://")) target = `https://${target}`;
+  let u: URL;
+  try {
+    u = new URL(target);
+  } catch {
+    throw new MetaFetchBlocked("invalid_url");
+  }
+  if (!/^https?:$/.test(u.protocol) || isBlockedMetaHost(u.hostname)) {
+    throw new MetaFetchBlocked("blocked_host");
+  }
+  const resp = await fetch(u.toString(), {
+    redirect: "follow",
+    headers: { "User-Agent": "MarkHub/0.1", Accept: "text/html,*/*" },
+  });
+  const finalUrl = resp.url || u.toString();
+  if (isBlockedMetaHost(new URL(finalUrl).hostname)) {
+    throw new MetaFetchBlocked("blocked_host");
+  }
+
+  let titleBuf = "";
+  let titleDone = false;
+  const metas = new Map<string, string>();
+  const links: { rel: string; href: string; type: string; sizes: string }[] = [];
+  const rewriter = new HTMLRewriter()
+    .on("title", {
+      element(el) {
+        el.onEndTag(() => {
+          titleDone = true;
+        });
+      },
+      text(t) {
+        if (!titleDone) titleBuf += t.text;
+      },
+    })
+    .on("meta", {
+      element(el) {
+        const key = (el.getAttribute("property") || el.getAttribute("name") || "").toLowerCase();
+        const content = el.getAttribute("content") || "";
+        if (key && content && !metas.has(key)) metas.set(key, content);
+      },
+    })
+    .on("link", {
+      element(el) {
+        const rel = (el.getAttribute("rel") || "").toLowerCase();
+        const href = el.getAttribute("href") || "";
+        if (rel.includes("icon") && href) {
+          links.push({
+            rel,
+            href,
+            type: (el.getAttribute("type") || "").toLowerCase(),
+            sizes: (el.getAttribute("sizes") || "").toLowerCase(),
+          });
+        }
+      },
+    });
+  await rewriter.transform(resp).arrayBuffer();
+
+  const title = metas.get("og:title") || metas.get("twitter:title") || titleBuf.trim();
+  const description =
+    metas.get("og:description") || metas.get("description") || metas.get("twitter:description") || "";
+
+  // Score icon candidates like the Python server: apple-touch-icon/png first
+  const scored = links
+    .map((l) => {
+      let score = 0;
+      if (l.rel.includes("apple-touch-icon")) score += 3;
+      if (l.href.toLowerCase().endsWith(".png") || l.type.includes("png")) score += 2;
+      if (l.href.toLowerCase().endsWith(".svg")) score += 1;
+      const m = l.sizes.match(/(\d+)x/);
+      if (m) score += 2 - Math.floor(Math.abs(Number(m[1]) - 64) / 64);
+      return { score, url: new URL(l.href, finalUrl).toString() };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.url);
+  scored.push(new URL("/favicon.ico", finalUrl).toString());
+
+  let icon = "";
+  for (const cand of scored.slice(0, 4)) {
+    const stored = await downloadFavicon(env, cand);
+    if (stored) {
+      icon = stored;
+      break;
+    }
+  }
+
+  return {
+    url: target,
+    title: decodeHtmlEntities(title.trim()),
+    description: decodeHtmlEntities(description.trim()),
+    icon,
+  };
+}
+
 async function handleApi(req: Request, env: Env, path: string): Promise<Response> {
   await ensureBootstrap(env);
+  await ensureIconSchema(env);
   const method = req.method;
   const url = new URL(req.url);
 
@@ -1487,6 +1694,7 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
         title: b.title,
         url: b.url,
         description: b.description,
+        icon: b.icon ?? null,
         visibility: b.visibility,
         sort_order: b.sort_order,
       });
@@ -1767,6 +1975,22 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
   }
 
   // ── Bookmarks ──
+  if (path === "/metadata" && method === "POST") {
+    const body = (await req.json()) as { url?: string };
+    try {
+      return json(await fetchPageMetadata(env, body.url || ""));
+    } catch (e) {
+      if (e instanceof MetaFetchBlocked) {
+        return err("fetch_blocked", `SSRF blocked: ${e.message}`, 400);
+      }
+      return err(
+        "fetch_failed",
+        `Could not fetch metadata: ${e instanceof Error ? e.message : String(e)}`,
+        502,
+      );
+    }
+  }
+
   if (path === "/bookmarks" && method === "GET") {
     const folderId = url.searchParams.get("folder_id");
     const q = url.searchParams.get("q");
@@ -1869,9 +2093,13 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     const vis = asVisibility(body.visibility);
     const isFavorite = body.is_favorite ? 1 : 0;
     const isArchived = body.is_archived ? 1 : 0;
+    const icon = typeof body.icon === "string" && body.icon.trim() ? body.icon.trim() : null;
+    const sortOrder = Number.isFinite(Number(body.sort_order)) && body.sort_order !== null && body.sort_order !== undefined
+      ? Number(body.sort_order)
+      : 0;
     await env.DB.prepare(
-      `INSERT INTO bookmarks (id, user_id, folder_id, title, url, url_normalized, description, visibility, is_favorite, is_archived, sort_order, link_status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'unknown', ?, ?)`,
+      `INSERT INTO bookmarks (id, user_id, folder_id, title, url, url_normalized, description, icon, visibility, is_favorite, is_archived, sort_order, link_status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', ?, ?)`,
     )
       .bind(
         id,
@@ -1881,9 +2109,11 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
         body.url,
         norm,
         body.description || null,
+        icon,
         vis,
         isFavorite,
         isArchived,
+        sortOrder,
         t,
         t,
       )
@@ -1905,10 +2135,11 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       url: body.url,
       url_normalized: norm,
       description: body.description || null,
+      icon,
       visibility: vis,
       is_favorite: !!isFavorite,
       is_archived: !!isArchived,
-      sort_order: 0,
+      sort_order: sortOrder,
       link_status: "unknown",
       deleted_at: null,
       created_at: t,
@@ -1960,11 +2191,17 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       body.is_favorite !== undefined ? (body.is_favorite ? 1 : 0) : b.is_favorite;
     const is_archived =
       body.is_archived !== undefined ? (body.is_archived ? 1 : 0) : b.is_archived;
+    const icon =
+      body.icon !== undefined ? (String(body.icon || "").trim() || null) : (b.icon ?? null);
+    const sort_order =
+      body.sort_order !== undefined && Number.isFinite(Number(body.sort_order))
+        ? Number(body.sort_order)
+        : b.sort_order;
     const t = now();
     await env.DB.prepare(
-      `UPDATE bookmarks SET title=?, url=?, url_normalized=?, description=?, folder_id=?, visibility=?, is_favorite=?, is_archived=?, updated_at=? WHERE id=?`,
+      `UPDATE bookmarks SET title=?, url=?, url_normalized=?, description=?, icon=?, folder_id=?, visibility=?, is_favorite=?, is_archived=?, sort_order=?, updated_at=? WHERE id=?`,
     )
-      .bind(title, bmUrl, norm, description, folder_id, visibility, is_favorite, is_archived, t, id)
+      .bind(title, bmUrl, norm, description, icon, folder_id, visibility, is_favorite, is_archived, sort_order, t, id)
       .run();
     let tags = await tagsForBookmark(env, id);
     if (body.tags !== undefined && Array.isArray(body.tags)) {
@@ -1977,10 +2214,12 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       url: bmUrl,
       url_normalized: norm,
       description,
+      icon,
       folder_id,
       visibility,
       is_favorite: !!is_favorite,
       is_archived: !!is_archived,
+      sort_order,
       updated_at: t,
       tags,
     };
@@ -2011,7 +2250,7 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     ).results;
     const bookmarks = (
       await env.DB.prepare(
-        "SELECT id, folder_id, title, url, description, visibility, is_favorite, is_archived, sort_order FROM bookmarks WHERE user_id = ? AND deleted_at IS NULL ORDER BY sort_order",
+        "SELECT id, folder_id, title, url, description, icon, visibility, is_favorite, is_archived, sort_order FROM bookmarks WHERE user_id = ? AND deleted_at IS NULL ORDER BY sort_order",
       )
         .bind(user.id)
         .all<any>()
@@ -3693,6 +3932,32 @@ export default {
     const started = Date.now();
     metrics.requests++;
     await enableForeignKeys(env);
+    if (url.pathname.startsWith("/api/icons/favicons/") && req.method === "GET") {
+      try {
+        await ensureIconSchema(env);
+        const name = url.pathname.slice("/api/icons/favicons/".length);
+        if (!SAFE_ICON_NAME.test(name)) {
+          return err("not_found", "Icon not found", 404);
+        }
+        const row = await env.DB.prepare(
+          "SELECT content_type, data FROM favicon_blobs WHERE name = ?",
+        )
+          .bind(name)
+          .first<{ content_type: string; data: ArrayBuffer | number[] }>();
+        if (!row) return err("not_found", "Icon not found", 404);
+        const body =
+          row.data instanceof ArrayBuffer ? row.data : new Uint8Array(row.data).buffer;
+        return new Response(body, {
+          headers: {
+            "content-type": row.content_type || "application/octet-stream",
+            "cache-control": "public, max-age=604800, immutable",
+          },
+        });
+      } catch (e) {
+        metrics.errors_5xx++;
+        return err("internal", e instanceof Error ? e.message : "error", 500);
+      }
+    }
     if (url.pathname.startsWith("/api/v1")) {
       const path = url.pathname.slice("/api/v1".length) || "/";
       try {
