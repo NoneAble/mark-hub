@@ -115,10 +115,10 @@ test.describe("MarkHub material flows", () => {
     await ensureLoggedIn(page);
     await page.getByTestId("topbar-edit").click();
     await expect(page.getByTestId("new-folder")).toBeVisible();
-    // Category rows expose a dropdown menu with edit/delete actions
-    const folderMenu = page.locator('[data-testid^="folder-menu-"]').first();
-    if (await folderMenu.isVisible().catch(() => false)) {
-      await folderMenu.click();
+    // Right-clicking a category row opens the edit/delete context menu
+    const folderRow = page.locator(".folder-row").first();
+    if (await folderRow.isVisible().catch(() => false)) {
+      await folderRow.click({ button: "right" });
       await expect(page.getByTestId("folder-menu-edit")).toBeVisible();
       await expect(page.getByTestId("folder-menu-delete")).toBeVisible();
       await page.keyboard.press("Escape");

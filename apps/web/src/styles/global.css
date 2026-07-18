@@ -1194,26 +1194,6 @@ div.field {
 .folder-row.dragging {
   opacity: 0.45;
 }
-.folder-row-actions {
-  display: flex;
-  gap: 1px;
-  flex: none;
-  opacity: 0;
-  transition: opacity var(--ease);
-}
-.folder-row:hover .folder-row-actions,
-.folder-row:focus-within .folder-row-actions,
-.folder-row-actions:has(.menu) {
-  opacity: 1;
-}
-/* per-category dropdown (edit mode) anchors to the row's trailing button */
-.folder-menu {
-  position: relative;
-}
-.folder-menu .menu {
-  min-width: 150px;
-}
-
 /* sidebar tag edit affordance */
 .tag-edit-wrap {
   display: inline-flex;
@@ -1291,6 +1271,14 @@ div.field {
   height: 1px;
   background: var(--border);
   margin: 5px 4px;
+}
+/* right-click context menu on category rows (edit mode) */
+.folder-context-menu {
+  position: fixed;
+  right: auto;
+  top: auto;
+  min-width: 150px;
+  z-index: 90;
 }
 
 /* batch action bar (edit mode) */
@@ -1388,9 +1376,8 @@ div.field {
   .public-body {
     min-height: 0;
   }
-  /* Always show card/folder actions on touch / narrow (no hover) */
-  .bm-actions,
-  .folder-row-actions {
+  /* Always show card actions on touch / narrow (no hover) */
+  .bm-actions {
     opacity: 1;
   }
   .bm-card:hover {

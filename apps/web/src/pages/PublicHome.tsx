@@ -168,74 +168,65 @@ function buildTreeFromHome(folders: ManagedFolder[], bookmarks: HomeBookmark[]):
 
 type Selected = string | "all" | "archived";
 
-/** Per-category "more" dropdown (edit mode): mail-style folder menu. */
-function FolderRowMenu({
+/** Right-click context menu for category rows (edit mode), themed like the user menu. */
+function FolderContextMenu({
   name,
-  id,
+  x,
+  y,
   onEdit,
   onDelete,
+  onClose,
 }: {
   name: string;
-  id: string;
+  x: number;
+  y: number;
   onEdit: () => void;
   onDelete: () => void;
+  onClose: () => void;
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const rootRef = useClickOutside(useCallback(() => setOpen(false), []));
+  const rootRef = useClickOutside(onClose);
 
   useEffect(() => {
-    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [onClose]);
+
+  // Keep the menu inside the viewport when invoked near an edge
+  const left = Math.max(8, Math.min(x, window.innerWidth - 170));
+  const top = Math.max(8, Math.min(y, window.innerHeight - 140));
 
   return (
-    <div className="folder-row-actions folder-menu" ref={rootRef}>
+    <div
+      className="menu folder-context-menu"
+      role="menu"
+      ref={rootRef}
+      style={{ left, top }}
+      data-testid="folder-context-menu"
+    >
+      <div className="menu-label">{name}</div>
       <button
-        className="btn-icon"
         type="button"
-        title={t("more")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        data-testid={`folder-menu-${id}`}
-        onClick={() => setOpen((v) => !v)}
+        className="menu-item"
+        role="menuitem"
+        data-testid="folder-menu-edit"
+        onClick={onEdit}
       >
-        ⋯
+        {t("edit")}
       </button>
-      {open ? (
-        <div className="menu" role="menu">
-          <div className="menu-label">{name}</div>
-          <button
-            type="button"
-            className="menu-item"
-            role="menuitem"
-            data-testid="folder-menu-edit"
-            onClick={() => {
-              setOpen(false);
-              onEdit();
-            }}
-          >
-            {t("edit")}
-          </button>
-          <div className="menu-sep" role="separator" />
-          <button
-            type="button"
-            className="menu-item danger"
-            role="menuitem"
-            data-testid="folder-menu-delete"
-            onClick={() => {
-              setOpen(false);
-              onDelete();
-            }}
-          >
-            {t("delete")}
-          </button>
-        </div>
-      ) : null}
+      <div className="menu-sep" role="separator" />
+      <button
+        type="button"
+        className="menu-item danger"
+        role="menuitem"
+        data-testid="folder-menu-delete"
+        onClick={onDelete}
+      >
+        {t("delete")}
+      </button>
     </div>
   );
 }
@@ -271,6 +262,8 @@ export function PublicHome() {
   const [tagModal, setTagModal] = useState<{ id: string; name: string } | null>(null);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [dragId, setDragId] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
 
   const forcePw = !!token && !!user?.must_change_password;
 
@@ -658,6 +651,11 @@ export function PublicHome() {
 
   const showEdit = editMode && !!token;
 
+  // Leaving edit mode dismisses any open category context menu
+  useEffect(() => {
+    if (!showEdit) setCtxMenu(null);
+  }, [showEdit]);
+
   function editFromNode(bm: NavNode) {
     setEditing(bm);
   }
@@ -673,6 +671,14 @@ export function PublicHome() {
         onDragEnd={() => setDragId(null)}
         onDragOver={showEdit && dragId ? (e) => e.preventDefault() : undefined}
         onDrop={showEdit && f ? () => void onDropOnFolder(f) : undefined}
+        onContextMenu={
+          showEdit && f
+            ? (e) => {
+                e.preventDefault();
+                setCtxMenu({ id: f.id, x: e.clientX, y: e.clientY });
+              }
+            : undefined
+        }
       >
         <button
           type="button"
@@ -689,19 +695,12 @@ export function PublicHome() {
           ) : null}
           <span className="folder-count">{row.count}</span>
         </button>
-        {showEdit && f ? (
-          <FolderRowMenu
-            name={f.name}
-            id={f.id}
-            onEdit={() => setFolderModal({ open: true, folder: f })}
-            onDelete={() => void onDeleteFolder(f.id)}
-          />
-        ) : null}
       </div>
     );
   }
 
   const batchBarVisible = showEdit && selection.size > 0;
+  const ctxFolder = ctxMenu ? folderById.get(ctxMenu.id) : undefined;
 
   return (
     <div
@@ -1103,6 +1102,22 @@ export function PublicHome() {
         }}
       />
 
+      {showEdit && ctxMenu && ctxFolder ? (
+        <FolderContextMenu
+          name={ctxFolder.name}
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={closeCtxMenu}
+          onEdit={() => {
+            setCtxMenu(null);
+            setFolderModal({ open: true, folder: ctxFolder });
+          }}
+          onDelete={() => {
+            setCtxMenu(null);
+            void onDeleteFolder(ctxFolder.id);
+          }}
+        />
+      ) : null}
       {confirmElement}
       {deleteFolderElement}
       <Toast message={toast} />
