@@ -196,7 +196,6 @@ export function Combobox({
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           aria-haspopup="listbox"
           aria-expanded={open}
