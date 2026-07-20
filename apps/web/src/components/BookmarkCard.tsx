@@ -41,6 +41,14 @@ type Props = {
   /** Batch selection (edit mode): render a checkbox overlay. */
   selected?: boolean;
   onSelectToggle?: () => void;
+  /** Drag reorder (edit mode): render a top-left handle and accept drops. */
+  draggable?: boolean;
+  dragging?: boolean;
+  /** True while any card drag is in progress — enables this card as a drop target. */
+  dragActive?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  onDropTarget?: () => void;
 };
 
 export function BookmarkCard({
@@ -51,6 +59,12 @@ export function BookmarkCard({
   onArchive,
   selected,
   onSelectToggle,
+  draggable,
+  dragging,
+  dragActive,
+  onDragStart,
+  onDragEnd,
+  onDropTarget,
 }: Props) {
   const b = brandOf(bm.url);
   // Show a tooltip with the full title only when the title is truncated.
@@ -63,6 +77,11 @@ export function BookmarkCard({
   const body = (
     <>
       {tipOpen ? <div className="bm-title-tooltip">{bm.title}</div> : null}
+      {draggable ? (
+        <span className="drag-handle bm-drag-handle" aria-hidden>
+          ⠿
+        </span>
+      ) : null}
       {onSelectToggle ? (
         <input
           type="checkbox"
@@ -147,7 +166,7 @@ export function BookmarkCard({
 
   return (
     <a
-      className="bm-card"
+      className={`bm-card${dragging ? " dragging" : ""}`}
       href={bm.url}
       target="_blank"
       rel="noreferrer"
@@ -155,6 +174,25 @@ export function BookmarkCard({
       onClick={(e) => {
         if (editMode) e.preventDefault();
       }}
+      draggable={draggable || undefined}
+      onDragStart={
+        draggable && onDragStart
+          ? (e) => {
+              e.dataTransfer.effectAllowed = "move";
+              onDragStart();
+            }
+          : undefined
+      }
+      onDragEnd={onDragEnd}
+      onDragOver={dragActive ? (e) => e.preventDefault() : undefined}
+      onDrop={
+        dragActive && onDropTarget
+          ? (e) => {
+              e.preventDefault();
+              onDropTarget();
+            }
+          : undefined
+      }
     >
       {body}
     </a>

@@ -220,7 +220,7 @@ export function PublicHome() {
   const [editMode, setEditMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [selected, setSelected] = useState<Selected>("all");
-  const [selTag, setSelTag] = useState<string | null>(null);
+  const [selTags, setSelTags] = useState<Set<string>>(new Set());
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [editing, setEditing] = useState<NavNode | null>(null);
   const [adding, setAdding] = useState(false);
@@ -236,6 +236,7 @@ export function PublicHome() {
   const [tagModal, setTagModal] = useState<{ id: string; name: string } | null>(null);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [dragId, setDragId] = useState<string | null>(null);
+  const [dragBmId, setDragBmId] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
 
@@ -435,14 +436,14 @@ export function PublicHome() {
       const node = find(tree);
       base = node ? [node] : [];
     }
-    if (selTag) base = filterTreeBy(base, (n) => hasTag(n, selTag));
+    if (selTags.size) base = filterTreeBy(base, (n) => [...selTags].every((tg) => hasTag(n, tg)));
     return base;
-  }, [tree, selected, selTag]);
+  }, [tree, selected, selTags]);
 
   const groups = useMemo(() => {
     if (selected === "archived") {
       const items = archivedBookmarks
-        .filter((b) => (selTag ? hasTag(b as NavNode, selTag) : true))
+        .filter((b) => [...selTags].every((tg) => hasTag(b as NavNode, tg)))
         .map<NavNode>((b) => ({ ...b, type: "bookmark" }));
       return items.length ? [{ id: "__archived", name: t("archived"), items }] : [];
     }
@@ -480,7 +481,7 @@ export function PublicHome() {
       }
     }
     return out;
-  }, [filtered, selected, selTag, archivedBookmarks, t]);
+  }, [filtered, selected, selTags, archivedBookmarks, t]);
 
   /* ---------- bookmark actions ---------- */
 
@@ -510,6 +511,15 @@ export function PublicHome() {
       notifyError(e);
     }
     await reload();
+  }
+
+  function toggleTagFilter(name: string) {
+    setSelTags((prev) => {
+      const n = new Set(prev);
+      if (n.has(name)) n.delete(name);
+      else n.add(name);
+      return n;
+    });
   }
 
   function toggleSelect(id: string) {
@@ -593,6 +603,33 @@ export function PublicHome() {
     await reload();
   }
 
+  /* ---------- bookmark drag reorder (edit mode, within one folder) ---------- */
+
+  async function onDropOnBookmark(target: NavNode) {
+    const dragged = dragBmId;
+    setDragBmId(null);
+    if (!dragged || dragged === target.id || !target.folder_id) return;
+    const draggedBm = rawBookmarks.find((b) => b.id === dragged);
+    if (!draggedBm || draggedBm.folder_id !== target.folder_id) return;
+    // Order full (unfiltered) siblings so hidden bookmarks keep a stable position
+    const siblings = rawBookmarks
+      .filter((b) => b.folder_id === target.folder_id && !b.is_archived)
+      .sort(
+        (a, b) =>
+          (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title),
+      )
+      .map((b) => b.id)
+      .filter((id) => id !== dragged);
+    const at = siblings.indexOf(target.id);
+    siblings.splice(at === -1 ? siblings.length : at, 0, dragged);
+    try {
+      await api.post("/bookmarks/reorder", { folder_id: target.folder_id, ordered_ids: siblings });
+    } catch (e) {
+      notifyError(e);
+    }
+    await reload();
+  }
+
   async function onDeleteFolder(id: string) {
     const f = folderById.get(id);
     if (!f) return;
@@ -621,6 +658,8 @@ export function PublicHome() {
   const defaultParentId = folderById.get(defaultFolderId)?.is_system ? "" : defaultFolderId;
 
   const showEdit = editMode && !!token;
+  // Reorder only makes sense inside a folder — the archived view mixes folders
+  const canDragBm = showEdit && selected !== "archived";
 
   // Leaving edit mode dismisses any open category context menu
   useEffect(() => {
@@ -778,8 +817,8 @@ export function PublicHome() {
           <button
             key={`tag-${tg.name}`}
             type="button"
-            className={`chip${selTag === tg.name ? " active" : ""}`}
-            onClick={() => setSelTag((cur) => (cur === tg.name ? null : tg.name))}
+            className={`chip${selTags.has(tg.name) ? " active" : ""}`}
+            onClick={() => toggleTagFilter(tg.name)}
           >
             #{tg.name}
           </button>
@@ -841,9 +880,9 @@ export function PublicHome() {
                   <span key={tg.name} className="tag-edit-wrap">
                     <button
                       type="button"
-                      className={`tag-chip${selTag === tg.name ? " active" : ""}`}
+                      className={`tag-chip${selTags.has(tg.name) ? " active" : ""}`}
                       style={{ cursor: "pointer", border: "none" }}
-                      onClick={() => setSelTag((cur) => (cur === tg.name ? null : tg.name))}
+                      onClick={() => toggleTagFilter(tg.name)}
                     >
                       #{tg.name}
                     </button>
@@ -896,6 +935,12 @@ export function PublicHome() {
                       onDelete={showEdit ? () => void deleteBm(bm.id) : undefined}
                       selected={selection.has(bm.id)}
                       onSelectToggle={showEdit ? () => toggleSelect(bm.id) : undefined}
+                      draggable={canDragBm}
+                      dragging={dragBmId === bm.id}
+                      dragActive={canDragBm && !!dragBmId}
+                      onDragStart={canDragBm ? () => setDragBmId(bm.id) : undefined}
+                      onDragEnd={() => setDragBmId(null)}
+                      onDropTarget={canDragBm ? () => void onDropOnBookmark(bm) : undefined}
                     />
                   ))}
                 </div>
@@ -1049,7 +1094,7 @@ export function PublicHome() {
         onClose={() => setTagModal(null)}
         onChanged={() => {
           setTagModal(null);
-          setSelTag(null);
+          setSelTags(new Set());
           showToast("✓");
           void reload();
         }}

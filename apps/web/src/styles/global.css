@@ -1298,6 +1298,26 @@ div.field {
   white-space: nowrap;
 }
 
+/* card drag handle (edit mode) — top-left, mirrors the sidebar folder handle */
+.bm-drag-handle {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.bm-card.dragging {
+  opacity: 0.45;
+}
+
 /* card selection checkbox (edit mode) */
 .bm-check {
   position: absolute;
