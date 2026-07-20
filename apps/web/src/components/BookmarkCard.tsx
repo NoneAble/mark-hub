@@ -41,14 +41,13 @@ type Props = {
   /** Batch selection (edit mode): render a checkbox overlay. */
   selected?: boolean;
   onSelectToggle?: () => void;
-  /** Drag reorder (edit mode): render a top-left handle and accept drops. */
+  /** Drag reorder (edit mode): render a top-left handle. */
   draggable?: boolean;
   dragging?: boolean;
-  /** True while any card drag is in progress — enables this card as a drop target. */
-  dragActive?: boolean;
   onDragStart?: () => void;
   onDragEnd?: () => void;
-  onDropTarget?: () => void;
+  /** Fired when a dragged card enters this one — live-reorders the preview. */
+  onDragEnterTarget?: () => void;
 };
 
 export function BookmarkCard({
@@ -61,10 +60,9 @@ export function BookmarkCard({
   onSelectToggle,
   draggable,
   dragging,
-  dragActive,
   onDragStart,
   onDragEnd,
-  onDropTarget,
+  onDragEnterTarget,
 }: Props) {
   const b = brandOf(bm.url);
   // Show a tooltip with the full title only when the title is truncated.
@@ -184,15 +182,7 @@ export function BookmarkCard({
           : undefined
       }
       onDragEnd={onDragEnd}
-      onDragOver={dragActive ? (e) => e.preventDefault() : undefined}
-      onDrop={
-        dragActive && onDropTarget
-          ? (e) => {
-              e.preventDefault();
-              onDropTarget();
-            }
-          : undefined
-      }
+      onDragEnter={onDragEnterTarget ? () => onDragEnterTarget() : undefined}
     >
       {body}
     </a>

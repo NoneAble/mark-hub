@@ -582,21 +582,80 @@ export function PublicHome() {
 
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
 
-  async function onDropOnFolder(target: ManagedFolder) {
-    const dragged = dragId;
+  // Live preview while dragging: hovering a target reorders the local state
+  // immediately; drop persists the previewed order, cancel restores the snapshot.
+  const dragSnapshot = useRef<{
+    folders: ManagedFolder[];
+    bookmarks: HomeBookmark[];
+    tree: NavNode[];
+  } | null>(null);
+  const dragDropped = useRef(false);
+  const dragMoved = useRef(false);
+
+  function beginDragSnapshot() {
+    dragSnapshot.current = { folders, bookmarks: rawBookmarks, tree };
+    dragDropped.current = false;
+    dragMoved.current = false;
+  }
+
+  function applyPreview(nextFolders: ManagedFolder[], nextBookmarks: HomeBookmark[]) {
+    setFolders(nextFolders);
+    setRawBookmarks(nextBookmarks);
+    setTree(buildTreeFromHome(nextFolders, nextBookmarks));
+  }
+
+  /** Shared dragend: without a drop (Esc / released outside) revert the preview. */
+  function endDrag() {
+    if (!dragDropped.current && dragSnapshot.current) {
+      const s = dragSnapshot.current;
+      setFolders(s.folders);
+      setRawBookmarks(s.bookmarks);
+      setTree(s.tree);
+    }
+    dragSnapshot.current = null;
+    dragDropped.current = false;
+    dragMoved.current = false;
     setDragId(null);
-    if (!dragged || dragged === target.id) return;
+    setDragBmId(null);
+  }
+
+  function onFolderDragStart(id: string) {
+    beginDragSnapshot();
+    setDragId(id);
+  }
+
+  function previewFolderOver(target: ManagedFolder) {
+    if (!dragId || dragId === target.id || !folderById.get(dragId)) return;
     // A folder cannot land inside its own subtree
     for (let p = target.parent_id; p; p = folderById.get(p)?.parent_id ?? null) {
-      if (p === dragged) return;
+      if (p === dragId) return;
     }
     const siblings = (foldersByParent.get(target.parent_id) || [])
       .map((f) => f.id)
-      .filter((id) => id !== dragged);
+      .filter((id) => id !== dragId);
     const at = siblings.indexOf(target.id);
-    siblings.splice(at === -1 ? siblings.length : at, 0, dragged);
+    siblings.splice(at === -1 ? siblings.length : at, 0, dragId);
+    const current = (foldersByParent.get(target.parent_id) || []).map((f) => f.id);
+    if (current.join("\n") === siblings.join("\n")) return;
+    const orderIdx = new Map(siblings.map((id, i) => [id, i]));
+    const nextFolders = folders.map((f) =>
+      orderIdx.has(f.id)
+        ? { ...f, parent_id: target.parent_id, sort_order: orderIdx.get(f.id)! }
+        : f,
+    );
+    dragMoved.current = true;
+    applyPreview(nextFolders, rawBookmarks);
+  }
+
+  async function onDropFolder() {
+    dragDropped.current = true;
+    const dragged = dragId ? folderById.get(dragId) : undefined;
+    setDragId(null);
+    if (!dragged || !dragMoved.current) return;
+    dragMoved.current = false;
+    const ordered = (foldersByParent.get(dragged.parent_id) || []).map((f) => f.id);
     try {
-      await api.post("/folders/reorder", { parent_id: target.parent_id, ordered_ids: siblings });
+      await api.post("/folders/reorder", { parent_id: dragged.parent_id, ordered_ids: ordered });
     } catch (e) {
       notifyError(e);
     }
@@ -605,25 +664,51 @@ export function PublicHome() {
 
   /* ---------- bookmark drag reorder (edit mode, within one folder) ---------- */
 
-  async function onDropOnBookmark(target: NavNode) {
-    const dragged = dragBmId;
-    setDragBmId(null);
-    if (!dragged || dragged === target.id || !target.folder_id) return;
-    const draggedBm = rawBookmarks.find((b) => b.id === dragged);
-    if (!draggedBm || draggedBm.folder_id !== target.folder_id) return;
-    // Order full (unfiltered) siblings so hidden bookmarks keep a stable position
-    const siblings = rawBookmarks
-      .filter((b) => b.folder_id === target.folder_id && !b.is_archived)
+  /** Full (unfiltered) folder order, so hidden bookmarks keep a stable position. */
+  function folderBookmarkIds(folderId: string): string[] {
+    return rawBookmarks
+      .filter((b) => b.folder_id === folderId && !b.is_archived)
       .sort(
         (a, b) =>
           (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.title.localeCompare(b.title),
       )
-      .map((b) => b.id)
-      .filter((id) => id !== dragged);
+      .map((b) => b.id);
+  }
+
+  function onBmDragStart(id: string) {
+    beginDragSnapshot();
+    setDragBmId(id);
+  }
+
+  function previewBookmarkOver(target: NavNode) {
+    if (!dragBmId || dragBmId === target.id || !target.folder_id) return;
+    const dragged = rawBookmarks.find((b) => b.id === dragBmId);
+    if (!dragged || dragged.folder_id !== target.folder_id) return;
+    const current = folderBookmarkIds(target.folder_id);
+    const siblings = current.filter((id) => id !== dragBmId);
     const at = siblings.indexOf(target.id);
-    siblings.splice(at === -1 ? siblings.length : at, 0, dragged);
+    siblings.splice(at === -1 ? siblings.length : at, 0, dragBmId);
+    if (current.join("\n") === siblings.join("\n")) return;
+    const orderIdx = new Map(siblings.map((id, i) => [id, i]));
+    const nextBookmarks = rawBookmarks.map((b) => {
+      const idx = orderIdx.get(b.id);
+      return idx === undefined ? b : { ...b, sort_order: idx };
+    });
+    dragMoved.current = true;
+    applyPreview(folders, nextBookmarks);
+  }
+
+  async function onDropBookmark() {
+    dragDropped.current = true;
+    const dragged = dragBmId ? rawBookmarks.find((b) => b.id === dragBmId) : undefined;
+    setDragBmId(null);
+    if (!dragged || !dragMoved.current) return;
+    dragMoved.current = false;
     try {
-      await api.post("/bookmarks/reorder", { folder_id: target.folder_id, ordered_ids: siblings });
+      await api.post("/bookmarks/reorder", {
+        folder_id: dragged.folder_id,
+        ordered_ids: folderBookmarkIds(dragged.folder_id),
+      });
     } catch (e) {
       notifyError(e);
     }
@@ -677,10 +762,9 @@ export function PublicHome() {
         key={row.id}
         className={`folder-row${dragId === row.id ? " dragging" : ""}`}
         draggable={showEdit && !!f}
-        onDragStart={showEdit && f ? () => setDragId(row.id) : undefined}
-        onDragEnd={() => setDragId(null)}
-        onDragOver={showEdit && dragId ? (e) => e.preventDefault() : undefined}
-        onDrop={showEdit && f ? () => void onDropOnFolder(f) : undefined}
+        onDragStart={showEdit && f ? () => onFolderDragStart(row.id) : undefined}
+        onDragEnd={endDrag}
+        onDragEnter={showEdit && dragId && f ? () => previewFolderOver(f) : undefined}
         onContextMenu={
           showEdit && f
             ? (e) => {
@@ -830,7 +914,13 @@ export function PublicHome() {
           <div className="section-label" style={{ padding: "0 12px 10px" }}>
             {t("folders")}
           </div>
-          <div className="stack" style={{ gap: 2 }} data-testid="folder-tree">
+          <div
+            className="stack"
+            style={{ gap: 2 }}
+            data-testid="folder-tree"
+            onDragOver={dragId ? (e) => e.preventDefault() : undefined}
+            onDrop={dragId ? () => void onDropFolder() : undefined}
+          >
             <button
               type="button"
               className={`folder-item${selected === "all" ? " active" : ""}`}
@@ -915,7 +1005,12 @@ export function PublicHome() {
                     {g.items.length} {t("itemsUnit")}
                   </span>
                 </div>
-                <div className="grid-cards" data-testid="bookmark-cards">
+                <div
+                  className="grid-cards"
+                  data-testid="bookmark-cards"
+                  onDragOver={dragBmId ? (e) => e.preventDefault() : undefined}
+                  onDrop={dragBmId ? () => void onDropBookmark() : undefined}
+                >
                   {g.items.map((bm) => (
                     <BookmarkCard
                       key={bm.id}
@@ -937,10 +1032,11 @@ export function PublicHome() {
                       onSelectToggle={showEdit ? () => toggleSelect(bm.id) : undefined}
                       draggable={canDragBm}
                       dragging={dragBmId === bm.id}
-                      dragActive={canDragBm && !!dragBmId}
-                      onDragStart={canDragBm ? () => setDragBmId(bm.id) : undefined}
-                      onDragEnd={() => setDragBmId(null)}
-                      onDropTarget={canDragBm ? () => void onDropOnBookmark(bm) : undefined}
+                      onDragStart={canDragBm ? () => onBmDragStart(bm.id) : undefined}
+                      onDragEnd={endDrag}
+                      onDragEnterTarget={
+                        canDragBm && dragBmId ? () => previewBookmarkOver(bm) : undefined
+                      }
                     />
                   ))}
                 </div>
